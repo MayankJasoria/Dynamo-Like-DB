@@ -1,2 +1,2 @@
 # Cloud-Assignment-2
-Cloud COmputing Assignment 2
+Cloud Computing Assignment 2
