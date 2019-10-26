@@ -19,5 +19,4 @@ public class AppConfig extends ResourceConfig {
         register(new GensonJaxRSFeature().use(genson));
         packages("com.cloudproject.dynamo.controller");
     }
-
 }

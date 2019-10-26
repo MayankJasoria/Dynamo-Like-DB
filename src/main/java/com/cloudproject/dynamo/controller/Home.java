@@ -8,6 +8,7 @@ public class Home {
 
     public static void main(String[] args) {
         // use for debugging purposes: check behavior of internals
+        System.out.println("Hello World!");
     }
 
     /**
