@@ -13,8 +13,8 @@ public class VirtualNode<T extends Node> implements Node {
     }
 
     @Override
-    public String getKey() {
-        return physicalNode.getKey() + "-" + replicaIndex;
+    public String getAddress() {
+        return physicalNode.getAddress() + "-" + replicaIndex;
     }
 
     /**
@@ -25,7 +25,7 @@ public class VirtualNode<T extends Node> implements Node {
      * @return true if this is a virtual node of pNode, false otherwise
      */
     public boolean isVirtualNodeOf(T pNode) {
-        return physicalNode.getKey().equals(pNode.getKey());
+        return physicalNode.getAddress().equals(pNode.getAddress());
     }
 
     /**

@@ -9,5 +9,5 @@ public interface Node {
     /**
      * @return The key to be used for hashing
      */
-    String getKey();
+    String getAddress();
 }

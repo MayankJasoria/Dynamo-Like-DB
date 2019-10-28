@@ -4,9 +4,11 @@ import com.cloudproject.dynamo.models.BucketInputModel;
 import com.cloudproject.dynamo.models.BucketOutputModel;
 import com.cloudproject.dynamo.models.ObjectInputModel;
 import com.cloudproject.dynamo.models.ObjectOutputModel;
+import com.cloudproject.dynamo.msgmanager.DynamoServer;
 
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
+import java.net.SocketException;
 
 @Path("/")
 public class Home {
@@ -16,8 +18,8 @@ public class Home {
      *
      * @param args array of String, may be used for debugging
      */
-    public static void main(String[] args) {
-        System.out.println("Hello World!");
+    public static void main(String[] args) throws SocketException, InterruptedException {
+        DynamoServer.startServer(args);
     }
 
     /**
