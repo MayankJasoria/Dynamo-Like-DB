@@ -42,7 +42,7 @@ public class HashingManager<T extends Node> {
         int existingReplicas = getExistingReplicas(pNode);
         for (int i = 0; i < vNodeCount; i++) {
             VirtualNode<T> vNode = new VirtualNode<>(pNode, i + existingReplicas);
-            ring.put(hashFunction.hash(vNode.getKey()), vNode);
+            ring.put(hashFunction.hash(vNode.getAddress()), vNode);
 
             // TODO: Rehash data from adjacent nodes, both previous one and next one
         }
