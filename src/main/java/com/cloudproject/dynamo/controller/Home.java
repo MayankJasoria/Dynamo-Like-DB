@@ -1,7 +1,12 @@
 package com.cloudproject.dynamo.controller;
 
-import javax.ws.rs.GET;
-import javax.ws.rs.Path;
+import com.cloudproject.dynamo.models.BucketInputModel;
+import com.cloudproject.dynamo.models.BucketOutputModel;
+import com.cloudproject.dynamo.models.ObjectInputModel;
+import com.cloudproject.dynamo.models.ObjectOutputModel;
+
+import javax.ws.rs.*;
+import javax.ws.rs.core.MediaType;
 
 @Path("/")
 public class Home {
@@ -32,4 +37,52 @@ public class Home {
         return "Hello World!";
     }
 
+    @POST
+    @Path("Bucket")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public BucketOutputModel createBucket(BucketInputModel inputModel) {
+        // TODO: Create a folder in each node
+        BucketOutputModel bucketOutputModel = new BucketOutputModel();
+        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
+        return bucketOutputModel;
+    }
+
+    @DELETE
+    @Path("Bucket")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public BucketOutputModel deleteBucket(BucketInputModel inputModel) {
+        // TODO: Delete the required folder from each node (along with all its data)
+        BucketOutputModel bucketOutputModel = new BucketOutputModel();
+        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
+        return bucketOutputModel;
+    }
+
+    @POST
+    @Path("{bucketname}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public ObjectOutputModel createObject(ObjectInputModel inputModel) {
+        // TODO: Create the new object (file) in the required nodes
+        return null;
+    }
+
+    @PUT
+    @Path("{bucketname}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public ObjectOutputModel updateObject(ObjectInputModel inputModel) {
+        // TODO: replace old file with new file in each node for requested object
+        return null;
+    }
+
+    @DELETE
+    @Path("{bucketname}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public ObjectOutputModel deleteObject(ObjectInputModel inputModel) {
+        // TODO: delete the required object (file) from each node where requried
+        return null;
+    }
 }
