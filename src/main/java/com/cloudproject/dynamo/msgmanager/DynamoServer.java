@@ -1,18 +1,24 @@
 package com.cloudproject.dynamo.msgmanager;
 
+import com.cloudproject.dynamo.models.ObjectInputModel;
+import javafx.util.Pair;
+import org.apache.commons.io.FileUtils;
+
+import javax.management.Notification;
 import javax.management.NotificationListener;
 import java.io.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
-import java.util.*;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
-import javax.management.Notification;
 
 public class DynamoServer implements NotificationListener {
 
@@ -58,48 +64,14 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
-    private class Receiver implements Runnable {
-        private AtomicBoolean keepRunning;
+    private void start() throws InterruptedException {
+        ExecutorService exec = Executors.newCachedThreadPool();
+        exec.execute(new MessageReceiver());
+        //exec.execute(new PingSender());
+        exec.execute(new Gossiper());
 
-        public Receiver() {
-            keepRunning = new AtomicBoolean(true);
-        }
-        public void run() {
-            while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("ghot");
-                /* init a buffer where the packet will be placed */
-                byte[] buf = new byte[500];
-                DatagramPacket p = new DatagramPacket(buf, buf.length);
-                try {
-                    DynamoServer.this.server.receive(p);
-                    /* Parse this packet into an object */
-                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
-                    ObjectInputStream ois = new ObjectInputStream(bais);
-                    Object readObject = ois.readObject();
-                    if (readObject instanceof DynamoMessage) {
-                        DynamoMessage msg = (DynamoMessage)readObject;
-                        switch(msg.type) {
-                            case PING:
-                                System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
-                                break;
-                            case NODE_LIST:
-                                DynamoServer.this.mergeMembershipLists(msg.srcNode, msg.payload);
-                                break;
-                            default:
-                                System.out.println("Unrecognized packet type: " + msg.type.name());
-                        }
-                    } else {
-                        /* TODO: Handle unrecognized packet */
-                        System.out.println("Malformed packet!");
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                    keepRunning.set(false);
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
-                }
-            }
+        while (true) {
+            TimeUnit.SECONDS.sleep(10);
         }
     }
 
@@ -124,32 +96,21 @@ public class DynamoServer implements NotificationListener {
         socket.close();
     }
 
-    private class PingSender implements Runnable {
-        DynamoMessage pingMsg;
-        PingSender() {
-            pingMsg =
-                    new DynamoMessage(DynamoServer.this.node, MessageTypes.PING, null);
-        }
+    /**
+     * Method to create the bucket in the database having the specified name
+     *
+     * @param name The name of the bucket
+     * @return true if buckets were created successfully, false otherwise
+     */
+    public boolean createBucket(String name) {
+        // create folder in current node
+        boolean success = createFolder(name);
 
-        public void run() {
+        // send a request to each node in the system to create the folder
+        ExecutorService exec = Executors.newCachedThreadPool();
+        exec.execute(new MessageSender(MessageTypes.BUCKET_CREATE, name));
 
-            while (true) {
-                try {
-                    TimeUnit.MILLISECONDS.sleep(2000);
-                    for (DynamoNode node : DynamoServer.this.nodeList) {
-                        try {
-                            DynamoServer.this.sendMessage(node, pingMsg);
-                        } catch (IOException e) {
-                            /* TODO: Change address to node name after gossip implementation */
-                            System.out.println("[WARN] Could not send PING to " + node.getAddress());
-                            e.printStackTrace();
-                        }
-                    }
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
+        return success;
     }
 
     private class Gossiper implements Runnable {
@@ -260,17 +221,15 @@ public class DynamoServer implements NotificationListener {
 //        return newList;
 //    }
 
-    private void start() throws InterruptedException {
-        ExecutorService exec = Executors.newCachedThreadPool();
-        exec.execute(new Receiver());
-        //exec.execute(new PingSender());
-        exec.execute(new Gossiper());
+    public boolean deleteBucket(String name) {
+        boolean status = deleteFolder(name); // delete folder from current node
 
-        while (true) {
-            TimeUnit.SECONDS.sleep(10);
-        }
+        // send a request to each node in the system to delete the folder
+        ExecutorService executorService = Executors.newCachedThreadPool();
+        executorService.execute(new MessageSender(MessageTypes.BUCKET_DELETE, name));
+
+        return status;
     }
-
 
     public static void startServer(String[] args) throws SocketException, InterruptedException {
         if (args == null) {
@@ -283,6 +242,171 @@ public class DynamoServer implements NotificationListener {
             DynamoServer server =
                     new DynamoServer(args[0], args[1], addr_list, Integer.parseInt(args[3]), Integer.parseInt(args[4]));
             server.start();
+        }
+    }
+
+    /**
+     * Method to create a folder in current node
+     *
+     * @param name Name of the folder to be created
+     * @return true if folder was created successfully, false otherwise
+     */
+    private boolean createFolder(String name) {
+        return new File("/" + name).mkdir();
+    }
+
+    /**
+     * Method to delete a folder in current node
+     *
+     * @param name Name of the folder to be deleted
+     * @return true if the folder was deleted successfully
+     */
+    private boolean deleteFolder(String name) {
+        boolean status = false;
+        try {
+            FileUtils.deleteDirectory(new File("/" + name));
+            status = true;
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return status;
+    }
+
+    /**
+     * Method to create a file in current node
+     *
+     * @param folder   The folder in which the file is to be created
+     * @param name     the name of the file to be created
+     * @param contents the contents to be written to the file
+     * @return true if file creation was successful
+     */
+    private boolean createFile(String folder, String name, String contents) {
+        boolean status = false;
+        try {
+            File file = new File("/" + folder + "/" + name);
+            if (!file.exists()) {
+                FileUtils.write(file, contents, Charset.defaultCharset(), false);
+                status = true;
+            } else {
+                return status;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        return status;
+    }
+
+    @SuppressWarnings("unchecked")
+    private class MessageReceiver implements Runnable {
+        private AtomicBoolean keepRunning;
+
+        public MessageReceiver() {
+            keepRunning = new AtomicBoolean(true);
+        }
+
+        public void run() {
+            while (keepRunning.get()) {
+                /* Logic for receiving */
+                System.out.println("ghot");
+                /* init a buffer where the packet will be placed */
+                byte[] buf = new byte[500];
+                DatagramPacket p = new DatagramPacket(buf, buf.length);
+                try {
+                    DynamoServer.this.server.receive(p);
+                    /* Parse this packet into an object */
+                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                    ObjectInputStream ois = new ObjectInputStream(bais);
+                    Object readObject = ois.readObject();
+                    if (readObject instanceof DynamoMessage) {
+                        DynamoMessage msg = (DynamoMessage) readObject;
+                        boolean status;
+                        String bucketName = null;
+                        switch (msg.type) {
+                            case PING:
+                                System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
+                                break;
+                            case NODE_LIST:
+                                DynamoServer.this.mergeMembershipLists(msg.srcNode, msg.payload);
+                                /* TODO: Implement NODE LIST RECV */
+                                break;
+                            case BUCKET_CREATE:
+                                bucketName = (String) msg.payload;
+                                status = createFolder(bucketName);
+                                System.out.println("[" + node.name + "] Folder " + bucketName + " created: " + status);
+                                break;
+                            case BUCKET_DELETE:
+                                bucketName = (String) msg.payload;
+                                status = deleteFolder(bucketName);
+                                System.out.println("[" + node.name + "] Folder " + bucketName + " deleted: " + status);
+                                break;
+                            case OBJECT_CREATE:
+                                Pair<String, ObjectInputModel> obj = (Pair<String, ObjectInputModel>) msg.payload;
+                                status = createFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
+                                System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
+                                        + obj.getValue().getKey() + " creatied: " + status);
+                                break;
+                            case OBJECT_READ:
+                                break;
+                            case OBJECT_UPDATE:
+                                break;
+                            case OBJECT_DELETE:
+                                break;
+                            default:
+                                System.out.println("Unrecognized packet type: " + msg.type.name());
+                        }
+                    } else {
+                        /* TODO: Handle unrecognized packet */
+                        System.out.println("Malformed packet!");
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    keepRunning.set(false);
+                } catch (ClassNotFoundException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    private class MessageSender implements Runnable {
+        DynamoMessage sendMsg;
+        ArrayList<? extends DynamoNode> nodeList;
+
+        MessageSender(MessageTypes type, Object payload) {
+            sendMsg =
+                    new DynamoMessage(DynamoServer.this.node, type, payload);
+            nodeList = DynamoServer.this.nodeList;
+        }
+
+        MessageSender(MessageTypes type, Object payload, ArrayList<? extends DynamoNode> nodeList) {
+            this(type, payload);
+            this.nodeList = nodeList;
+        }
+
+        public void run() {
+
+            while (true) {
+                try {
+                    TimeUnit.MILLISECONDS.sleep(2000);
+                    for (DynamoNode node : nodeList) {
+                        try {
+                            DynamoServer.this.sendMessage(node, sendMsg);
+                        } catch (IOException e) {
+                            /* TODO: Change address to node name after gossip implementation */
+                            System.out.println("[WARN] Could not send " + sendMsg.type.name() +
+                                    " to " + node.getAddress());
+                            e.printStackTrace();
+                        }
+                    }
+                    if (sendMsg.type != MessageTypes.PING) {
+                        // this message should be sent only once, no need to loop
+                        break;
+                    }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
         }
     }
 }

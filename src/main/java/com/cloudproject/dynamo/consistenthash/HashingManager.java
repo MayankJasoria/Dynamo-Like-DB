@@ -8,6 +8,11 @@ import java.util.Collection;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
+/**
+ * Class for managing the hashing of nodes and data objects into nodes in a consistent manner
+ *
+ * @param <T> An object that extends the {@link Node} interface
+ */
 public class HashingManager<T extends Node> {
 
     private final TreeMap<Long, VirtualNode<T>> ring;
@@ -35,7 +40,7 @@ public class HashingManager<T extends Node> {
      * @param pNode      the physiclal node to be added to the ring
      * @param vNodeCount the number of replicas of the required node
      */
-    private void addNode(T pNode, int vNodeCount) {
+    public void addNode(T pNode, int vNodeCount) {
         if (vNodeCount < 0) {
             throw new IllegalArgumentException("Number of virtual nodes cannot be negative!");
         }

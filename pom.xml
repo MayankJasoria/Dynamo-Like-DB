@@ -158,6 +158,12 @@
             <version>17.0.0</version>
         </dependency>
 
+        <!-- commons-io library for handling File I/O-->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.6</version>
+        </dependency>
 
     </dependencies>
 
