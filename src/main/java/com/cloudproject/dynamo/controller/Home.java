@@ -6,8 +6,12 @@ import javax.ws.rs.Path;
 @Path("/")
 public class Home {
 
+    /**
+     * Main method, to be used for debugging purposes
+     *
+     * @param args array of String, may be used for debugging
+     */
     public static void main(String[] args) {
-        // use for debugging purposes: check behavior of internals
         System.out.println("Hello World!");
     }
 
