@@ -4,7 +4,7 @@ import com.cloudproject.dynamo.models.Node;
 
 import java.io.Serializable;
 
-public class DynamoNode implements Serializable, Cloneable {
+public class DynamoNode implements Serializable, Cloneable, Node {
     public String name;
     private String address;
     private int heartbeat;
@@ -60,12 +60,7 @@ public class DynamoNode implements Serializable, Cloneable {
         }
         DynamoNode other = (DynamoNode) obj;
         if (address == null) {
-            if (other.address != null) {
-                return false;
-            }
-        } else if (!address.equals(other.address)) {
-            return false;
-        }
-        return true;
+            return other.address == null;
+        } else return address.equals(other.address);
     }
 }

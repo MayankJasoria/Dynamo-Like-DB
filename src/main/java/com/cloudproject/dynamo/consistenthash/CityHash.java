@@ -6,7 +6,7 @@ import java.security.NoSuchAlgorithmException;
 /**
  * Package-private class to provide a
  */
-class CityHash implements HashFunction {
+public class CityHash implements HashFunction {
 
     private MessageDigest instance;
 

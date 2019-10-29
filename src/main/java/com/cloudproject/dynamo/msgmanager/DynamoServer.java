@@ -1,5 +1,8 @@
 package com.cloudproject.dynamo.msgmanager;
 
+import com.cloudproject.dynamo.consistenthash.CityHash;
+import com.cloudproject.dynamo.consistenthash.HashFunction;
+import com.cloudproject.dynamo.consistenthash.HashingManager;
 import com.cloudproject.dynamo.models.ObjectInputModel;
 import javafx.util.Pair;
 import org.apache.commons.io.FileUtils;
@@ -32,9 +35,12 @@ public class DynamoServer implements NotificationListener {
     private Random random;
     private int gossipInt;
     private int ttl;
+    private HashingManager<DynamoNode> hashingManager;
+    private int backups;
+    private int vNodeCount;
 
-    public DynamoServer(String name, String address, int gossipInt, int ttl,
-                        @Nullable ArrayList<String> addr_list) throws SocketException {
+    public DynamoServer(String name, String address, int gossipInt, int ttl, int vNodeCount,
+                        @Nullable ArrayList<String> addr_list, int backups) throws SocketException {
         this.address = address;
         this.nodeList = new ArrayList<>();
         this.deadList = new ArrayList<>();
@@ -47,6 +53,9 @@ public class DynamoServer implements NotificationListener {
         }
         this.node = new DynamoNode(name, address, this,0, ttl);
         int port = Integer.parseInt(address.split(":")[1]);
+
+        this.backups = (backups > 0) ? backups : 2;
+        this.vNodeCount = vNodeCount;
 
         /* init Random */
         this.random = new Random();
@@ -189,24 +198,28 @@ public class DynamoServer implements NotificationListener {
     public static void startServer(String[] args) throws SocketException, InterruptedException {
         if (args == null) {
             System.out.println("[ERROR] Arguments required");
-        } else if (args.length < 4) {
-            System.out.println("[ERROR] Expected at least 4 arguments, received " + args.length);
+        } else if (args.length < 5) {
+            System.out.println("[ERROR] Expected at least 5 arguments, received " + args.length);
         } else {
-
-            if (args.length == 4) {
-                DynamoServer server =
-                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), null);
-                server.start();
+            String[] hashParams = args[4].split(".");
+            int vNodeCount = Integer.parseInt(hashParams[0]);
+            int backups = 0;
+            if (hashParams.length == 2) {
+                backups = Integer.parseInt(hashParams[1]);
             }
-            else if (args.length == 5) {
+            if (args.length == 5) {
+                DynamoServer server =
+                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, null, backups);
+                server.start();
+            } else if (args.length == 6) {
                 ArrayList<String> addr_list =
                         new ArrayList<>(Arrays.asList(args[4].split(",")));
                 DynamoServer server =
-                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), addr_list);
+                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, addr_list, backups);
                 server.start();
             }
             else {
-                System.out.println("[ERROR] Expected 4 or 5 arguments, received " + args.length);
+                System.out.println("[ERROR] Expected 5 or 6 arguments, received " + args.length);
             }
         }
     }
@@ -239,7 +252,7 @@ public class DynamoServer implements NotificationListener {
      *
      * @param messageTypes The type of message tp be sent
      * @param payload      the message payload
-     * @param dynamoNode   The node to which thhe message to be sent
+     * @param dynamoNode   The node to which the message to be sent
      */
     private void sendRequest(MessageTypes messageTypes, Object payload, DynamoNode dynamoNode) {
         ArrayList<DynamoNode> list = new ArrayList<>();
@@ -261,6 +274,7 @@ public class DynamoServer implements NotificationListener {
         // send a request to each node in the system to create the folder
         sendRequests(MessageTypes.BUCKET_CREATE, name);
 
+        // TODO: Send the actual response received through acknowledgement message
         return success;
     }
 
@@ -286,6 +300,7 @@ public class DynamoServer implements NotificationListener {
         // send a request to each node in the system to delete the folder
         sendRequests(MessageTypes.BUCKET_DELETE, name);
 
+        // TODO: Send the actual response received through acknowledgement message
         return status;
     }
 
@@ -303,7 +318,42 @@ public class DynamoServer implements NotificationListener {
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+        // TODO: Send the actual response received through acknowledgement message
         return status;
+    }
+
+    /**
+     * Method to add a record to the database
+     *
+     * @param bucket     The bucket in which the record is to be added
+     * @param inputModel A deserialized object of the record sent by user
+     * @return true if the record was created successfully
+     */
+    public boolean addRecord(String bucket, ObjectInputModel inputModel) {
+        if (hashingManager == null) {
+            initializeHashingManager(vNodeCount, new CityHash(), backups);
+        }
+
+        sendRequests(MessageTypes.OBJECT_CREATE,
+                new Pair<>(bucket, inputModel),
+                hashingManager.routeNodes(inputModel.getKey()));
+
+        // TODO: Send the actual response received through acknowledgement message
+        return true;
+    }
+
+    public String readRecord(String bucket, ObjectInputModel inputModel) {
+        if (hashingManager == null) {
+            initializeHashingManager(vNodeCount, new CityHash(), backups);
+        }
+
+        sendRequests(MessageTypes.OBJECT_READ,
+                new Pair<>(bucket, inputModel),
+                hashingManager.routeNodes(inputModel.getKey()));
+
+        // TODO: Send the actual data to the application
+        return null;
     }
 
     /**
@@ -557,6 +607,24 @@ public class DynamoServer implements NotificationListener {
 
             }
             this.keepRunning = null;
+        }
+    }
+
+    /**
+     * Method to initialize an inctance of {@link HashingManager} for first time use
+     *
+     * @param vNodeCount   the number of replicates of a node to be maintained in the hash ring
+     * @param hashFunction an instance of the hash function to be used
+     * @param backups      the number of copies of the objects, including original, to be maintained
+     */
+    private void initializeHashingManager(int vNodeCount, HashFunction hashFunction, int backups) {
+        if (hashingManager == null) {
+            // initialize hashingManager only if it is null
+            if (backups != 2) {
+                hashingManager = new HashingManager<>(nodeList, vNodeCount, hashFunction, backups);
+            } else {
+                hashingManager = new HashingManager<>(nodeList, vNodeCount, hashFunction);
+            }
         }
     }
 }
