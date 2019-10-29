@@ -246,7 +246,8 @@ public class DynamoServer implements NotificationListener {
             } else if (args.length < 5) {
                 System.out.println("[ERROR] Expected at least 5 arguments, received " + args.length);
             } else {
-                String[] hashParams = args[4].split(".");
+                String[] hashParams = args[4].split(":");
+                //System.out.println("args[4]: " + args[4]);
                 int vNodeCount = Integer.parseInt(hashParams[0]);
                 int backups = 0;
                 if (hashParams.length == 2) {
@@ -258,7 +259,7 @@ public class DynamoServer implements NotificationListener {
                     selfServer.start();
                 } else if (args.length == 6) {
                     ArrayList<String> addr_list =
-                            new ArrayList<>(Arrays.asList(args[4].split(",")));
+                            new ArrayList<>(Arrays.asList(args[5].split(",")));
                     selfServer =
                             new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, addr_list, backups);
                     selfServer.start();
