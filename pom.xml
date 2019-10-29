@@ -11,14 +11,6 @@
     <name>dynamoProject Maven Webapp</name>
     <url>http://maven.apache.org</url>
 
-    <repositories>
-    <repository>
-        <id>ICM</id>
-        <name>ICM</name>
-        <url>http://maven.icm.edu.pl/artifactory/repo/</url>
-    </repository>
-    </repositories>
-
     <properties>
         <jackson.version>2.10.0</jackson.version>
         <jersey.version>2.29.1</jersey.version>
@@ -90,15 +82,6 @@
                             <mainClass>com.cloudproject.dynamo.controller.Home</mainClass>
                         </manifest>
                     </archive>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>org.openjfx</groupId>
-                <artifactId>javafx-maven-plugin</artifactId>
-                <version>0.0.3</version>
-                <configuration>
-                    <!-- <mainClass>HelloFX</mainClass> -->
                 </configuration>
             </plugin>
 
