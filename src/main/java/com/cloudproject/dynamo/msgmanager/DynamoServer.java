@@ -3,6 +3,7 @@ package com.cloudproject.dynamo.msgmanager;
 import com.cloudproject.dynamo.models.ObjectInputModel;
 import javafx.util.Pair;
 import org.apache.commons.io.FileUtils;
+import org.jetbrains.annotations.Nullable;
 
 import javax.management.Notification;
 import javax.management.NotificationListener;
@@ -32,14 +33,17 @@ public class DynamoServer implements NotificationListener {
     private int gossipInt;
     private int ttl;
 
-    public DynamoServer(String name, String address, ArrayList<String> addr_list, int gossipInt, int ttl) throws SocketException {
+    public DynamoServer(String name, String address, int gossipInt, int ttl,
+                        @Nullable ArrayList<String> addr_list) throws SocketException {
         this.address = address;
         this.nodeList = new ArrayList<>();
         this.deadList = new ArrayList<>();
         this.gossipInt = gossipInt;
         this.ttl = ttl;
-        for (String addr : addr_list) {
-            this.nodeList.add(new DynamoNode(null, addr, this,0, ttl));
+        if (addr_list != null) {
+            for (String addr : addr_list) {
+                this.nodeList.add(new DynamoNode(null, addr, this, 0, ttl));
+            }
         }
         this.node = new DynamoNode(name, address, this,0, ttl);
         int port = Integer.parseInt(address.split(":")[1]);
@@ -54,7 +58,7 @@ public class DynamoServer implements NotificationListener {
     @Override
     public void handleNotification(Notification notification, Object o) {
         DynamoNode deadNode = (DynamoNode)notification.getUserData();
-        System.out.println(">> Server leave: " + deadNode.name + "has left the network");
+        System.out.println(">> Server leave: " + deadNode.name + " has left the network");
         synchronized (DynamoServer.this.nodeList) {
             DynamoServer.this.nodeList.remove(deadNode);
         }
@@ -153,7 +157,7 @@ public class DynamoServer implements NotificationListener {
         //ArrayList<DynamoNode> sendList = cloneArrayList(this.nodeList);
         synchronized (this.nodeList) {
             DynamoNode dstNode = this.getRandomNode();
-            if (node != null) {
+            if (dstNode != null) {
                 DynamoMessage listMsg =
                         new DynamoMessage(this.node, MessageTypes.NODE_LIST, this.nodeList);
                 this.sendMessage(dstNode, listMsg);
@@ -169,6 +173,8 @@ public class DynamoServer implements NotificationListener {
             remoteNodesList.add(srcNode);
             synchronized (DynamoServer.this.deadList) {
                 synchronized (DynamoServer.this.nodeList) {
+                    /* remove self from remoteNode list */
+                    remoteNodesList.remove(DynamoServer.this.node);
                      /* Do the same with rest of the nodes */
                     for (DynamoNode remoteNode : remoteNodesList) {
                         if (DynamoServer.this.nodeList.contains(remoteNode)) {
@@ -234,14 +240,25 @@ public class DynamoServer implements NotificationListener {
     public static void startServer(String[] args) throws SocketException, InterruptedException {
         if (args == null) {
             System.out.println("[ERROR] Arguments required");
-        } else if (args.length != 3) {
-            System.out.println("[ERROR] Expected 3 arguments, received " + args.length);
+        } else if (args.length < 4) {
+            System.out.println("[ERROR] Expected at least 4 arguments, received " + args.length);
         } else {
-            ArrayList<String> addr_list =
-                    new ArrayList<>(Arrays.asList(args[2].split(",")));
-            DynamoServer server =
-                    new DynamoServer(args[0], args[1], addr_list, Integer.parseInt(args[3]), Integer.parseInt(args[4]));
-            server.start();
+
+            if (args.length == 4) {
+                DynamoServer server =
+                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), null);
+                server.start();
+            }
+            else if (args.length == 5) {
+                ArrayList<String> addr_list =
+                        new ArrayList<>(Arrays.asList(args[4].split(",")));
+                DynamoServer server =
+                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), addr_list);
+                server.start();
+            }
+            else {
+                System.out.println("[ERROR] Expected 4 or 5 arguments, received " + args.length);
+            }
         }
     }
 
@@ -310,7 +327,7 @@ public class DynamoServer implements NotificationListener {
                 /* Logic for receiving */
                 System.out.println("ghot");
                 /* init a buffer where the packet will be placed */
-                byte[] buf = new byte[500];
+                byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
                 try {
                     DynamoServer.this.server.receive(p);
