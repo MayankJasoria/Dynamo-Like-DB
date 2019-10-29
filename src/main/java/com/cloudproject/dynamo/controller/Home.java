@@ -1,9 +1,8 @@
 package com.cloudproject.dynamo.controller;
 
 import com.cloudproject.dynamo.models.BucketInputModel;
-import com.cloudproject.dynamo.models.BucketOutputModel;
 import com.cloudproject.dynamo.models.ObjectInputModel;
-import com.cloudproject.dynamo.models.ObjectOutputModel;
+import com.cloudproject.dynamo.models.OutputModel;
 import com.cloudproject.dynamo.msgmanager.DynamoServer;
 
 import javax.ws.rs.*;
@@ -45,31 +44,31 @@ public class Home {
     @Path("Bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public BucketOutputModel createBucket(BucketInputModel inputModel) {
+    public OutputModel createBucket(BucketInputModel inputModel) {
         // TODO: Create a folder in each node
-        BucketOutputModel bucketOutputModel = new BucketOutputModel();
-        dynamoServer.createBucket(inputModel.getBucketName(), bucketOutputModel);
+        OutputModel outputModel = new OutputModel();
+        dynamoServer.createBucket(inputModel.getBucketName(), OutputModel);
 
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
-        return bucketOutputModel;
+        return OutputModel;
     }
 
     @DELETE
     @Path("Bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public BucketOutputModel deleteBucket(BucketInputModel inputModel) {
+    public OutputModel deleteBucket(BucketInputModel inputModel) {
         // TODO: Delete the required folder from each node (along with all its data)
-        BucketOutputModel bucketOutputModel = new BucketOutputModel();
+        OutputModel outputModel = new OutputModel();
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
-        return bucketOutputModel;
+        return outputModel;
     }
 
     @POST
     @Path("{bucketname}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public ObjectOutputModel createObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
+    public OutputModel createObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
         // TODO: Create the new object (file) in the required nodes
         return null;
     }
@@ -78,7 +77,7 @@ public class Home {
     @Path("{bucketname}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public ObjectOutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
+    public OutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
         // TODO: replace old file with new file in each node for requested object
         return null;
     }
@@ -87,7 +86,7 @@ public class Home {
     @Path("{bucketname}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public ObjectOutputModel deleteObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
+    public OutputModel deleteObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
         // TODO: delete the required object (file) from each node where requried
         return null;
     }
