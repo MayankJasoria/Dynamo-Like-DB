@@ -67,7 +67,7 @@ public class DynamoServer implements NotificationListener {
     @Override
     public void handleNotification(Notification notification, Object o) {
         DynamoNode deadNode = (DynamoNode)notification.getUserData();
-        System.out.println(">> Server leave: " + deadNode.name + " has left the network");
+        System.out.println(">> LEAVE: " + deadNode.name + " has left the network");
         synchronized (DynamoServer.this.nodeList) {
             DynamoServer.this.nodeList.remove(deadNode);
         }
@@ -75,17 +75,37 @@ public class DynamoServer implements NotificationListener {
         synchronized (DynamoServer.this.deadList) {
             DynamoServer.this.deadList.add(deadNode);
         }
+
+        this.printNodeList();
     }
 
     private void start() throws InterruptedException {
+
+        for (DynamoNode localNode : this.nodeList) {
+            if (localNode != this.node) {
+                localNode.startTimer();
+            }
+        }
+
         ExecutorService exec = Executors.newCachedThreadPool();
         exec.execute(new MessageReceiver());
         //exec.execute(new PingSender());
         exec.execute(new Gossiper());
+        this.printNodeList();
 
         while (true) {
             TimeUnit.SECONDS.sleep(10);
         }
+    }
+
+    private void printNodeList() {
+        System.out.println("+------------------+");
+        System.out.println("| Active node list |");
+        System.out.println("+------------------+");
+        for (DynamoNode localNode : this.nodeList) {
+            System.out.println("|" + localNode.name + " ip: " + localNode.getAddress() + " HeartBeat: " + localNode.getHeartbeat());
+        }
+        System.out.println("+------------------+");
     }
 
     private void sendMessage(DynamoNode node, DynamoMessage msg) throws IOException {
@@ -149,6 +169,7 @@ public class DynamoServer implements NotificationListener {
                                 /* Just update the heartbeat to the latest one
                                  * and reset timer */
                                 DynamoNode localNode = DynamoServer.this.nodeList.get(DynamoServer.this.nodeList.indexOf((remoteNode)));
+                            if (localNode.name == null) localNode.name = remoteNode.name;
                                 if (remoteNode.getHeartbeat() > localNode.getHeartbeat()) {
                                     localNode.setHeartbeat(remoteNode.getHeartbeat());
                                     localNode.resetTimer();
@@ -167,6 +188,8 @@ public class DynamoServer implements NotificationListener {
                                             new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
                                     DynamoServer.this.nodeList.add(newNode);
                                     newNode.startTimer();
+                                    System.out.println(">> JOIN: " + newNode.name + " has joined the network");
+                                    this.printNodeList();
                                 }
 
                             } else {
@@ -176,6 +199,8 @@ public class DynamoServer implements NotificationListener {
                                         new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
                                 DynamoServer.this.nodeList.add(newNode);
                                 newNode.startTimer();
+                                System.out.println(">> JOIN: " + newNode.name + " has joined the network");
+                                this.printNodeList();
                             }
                         }
                     }
