@@ -96,47 +96,6 @@ public class DynamoServer implements NotificationListener {
         socket.close();
     }
 
-    /**
-     * Method to create the bucket in the database having the specified name
-     *
-     * @param name The name of the bucket
-     * @return true if buckets were created successfully, false otherwise
-     */
-    public boolean createBucket(String name) {
-        // create folder in current node
-        boolean success = createFolder(name);
-
-        // send a request to each node in the system to create the folder
-        ExecutorService exec = Executors.newCachedThreadPool();
-        exec.execute(new MessageSender(MessageTypes.BUCKET_CREATE, name));
-
-        return success;
-    }
-
-    private class Gossiper implements Runnable {
-        private AtomicBoolean keepRunning;
-
-        Gossiper() {
-            keepRunning = new AtomicBoolean(true);
-        }
-
-        public void run() {
-            while (this.keepRunning.get()) {
-                try {
-                    TimeUnit.MILLISECONDS.sleep(DynamoServer.this.gossipInt);
-                    DynamoServer.this.sendMembershipList();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                    this.keepRunning.set(false);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-
-            }
-            this.keepRunning = null;
-        }
-    }
-
     private DynamoNode getRandomNode() {
         DynamoNode node = null;
 
@@ -221,16 +180,6 @@ public class DynamoServer implements NotificationListener {
 //        return newList;
 //    }
 
-    public boolean deleteBucket(String name) {
-        boolean status = deleteFolder(name); // delete folder from current node
-
-        // send a request to each node in the system to delete the folder
-        ExecutorService executorService = Executors.newCachedThreadPool();
-        executorService.execute(new MessageSender(MessageTypes.BUCKET_DELETE, name));
-
-        return status;
-    }
-
     public static void startServer(String[] args) throws SocketException, InterruptedException {
         if (args == null) {
             System.out.println("[ERROR] Arguments required");
@@ -246,6 +195,59 @@ public class DynamoServer implements NotificationListener {
     }
 
     /**
+     * Method to send a request to all nodes of the system
+     *
+     * @param messageType The type of message to be sent
+     * @param payload     the message payload
+     */
+    private void sendRequests(MessageTypes messageType, Object payload) {
+        ExecutorService executorService = Executors.newCachedThreadPool();
+        executorService.execute(new MessageSender(messageType, payload));
+    }
+
+    /**
+     * Method to send a request to a set of specific nodes
+     *
+     * @param messageType The type of mesage to be sent
+     * @param payload     The message payoad
+     * @param nodeList    List of nodes which will receive the message
+     */
+    private void sendRequests(MessageTypes messageType, Object payload, ArrayList<? extends DynamoNode> nodeList) {
+        ExecutorService executorService = Executors.newCachedThreadPool();
+        executorService.execute(new MessageSender(messageType, payload, nodeList));
+    }
+
+    /**
+     * Method to send a request to a specific node
+     *
+     * @param messageTypes The type of message tp be sent
+     * @param payload      the message payload
+     * @param dynamoNode   The node to which thhe message to be sent
+     */
+    private void sendrequest(MessageTypes messageTypes, Object payload, DynamoNode dynamoNode) {
+        ArrayList<DynamoNode> list = new ArrayList<>();
+        list.add(dynamoNode);
+        sendRequests(messageTypes, payload, list);
+    }
+
+
+    /**
+     * Method to create the bucket in the database having the specified name
+     *
+     * @param name The name of the bucket
+     * @return true if buckets were created successfully, false otherwise
+     */
+    public boolean createBucket(String name) {
+        // create folder in current node
+        boolean success = createFolder(name);
+
+        // send a request to each node in the system to create the folder
+        sendRequests(MessageTypes.BUCKET_CREATE, name);
+
+        return success;
+    }
+
+    /**
      * Method to create a folder in current node
      *
      * @param name Name of the folder to be created
@@ -253,6 +255,21 @@ public class DynamoServer implements NotificationListener {
      */
     private boolean createFolder(String name) {
         return new File("/" + name).mkdir();
+    }
+
+    /**
+     * Method to delete a bucket from the database
+     *
+     * @param name Name of the folder to be deleted
+     * @return true if the folder was deleted successfully, false otherwise
+     */
+    public boolean deleteBucket(String name) {
+        boolean status = deleteFolder(name); // delete folder from current node
+
+        // send a request to each node in the system to delete the folder
+        sendRequests(MessageTypes.BUCKET_DELETE, name);
+
+        return status;
     }
 
     /**
@@ -297,6 +314,66 @@ public class DynamoServer implements NotificationListener {
         return status;
     }
 
+    /**
+     * Method to read a file and return its contents
+     *
+     * @param folder The folder in which the file is present
+     * @param name   the name of hte file
+     * @return A string representing the contents of the file
+     */
+    private String readFile(String folder, String name) {
+        String contents = null;
+        File file = new File("/" + folder + "/" + name);
+        if (file.exists()) {
+            try {
+                contents = FileUtils.readFileToString(file, Charset.defaultCharset());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        return contents;
+    }
+
+    /**
+     * Method to update a file in the current node (only overwrites existing files,
+     * reports failure if file doesn't exist)
+     *
+     * @param folder   The folder in which the file is to be updated
+     * @param name     the name of the file to be updated
+     * @param contents the contents to be written to the file
+     * @return true if the file was updated successfully
+     */
+    private boolean updateFile(String folder, String name, String contents) {
+        boolean status = false;
+        File file = new File("/" + folder + "/" + name);
+        if (file.exists()) {
+            try {
+                FileUtils.write(file, contents, Charset.defaultCharset(), false);
+                status = true;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        return status;
+    }
+
+    /**
+     * Method to delete a file in the current node
+     *
+     * @param folder The folder in which the file is to be deleted
+     * @param name   the name of the file to be deleted
+     * @return true if the file was deleted successfully
+     */
+    private boolean deleteFile(String folder, String name) {
+        boolean status = false;
+        File file = new File("/" + folder + "/" + name);
+        if (file.exists()) {
+            status = file.delete();
+        }
+        return status;
+    }
+
     @SuppressWarnings("unchecked")
     private class MessageReceiver implements Runnable {
         private AtomicBoolean keepRunning;
@@ -322,6 +399,8 @@ public class DynamoServer implements NotificationListener {
                         DynamoMessage msg = (DynamoMessage) readObject;
                         boolean status;
                         String bucketName = null;
+                        Pair<String, ObjectInputModel> obj = null;
+                        // TODO: Implement sending of acknowledgement message
                         switch (msg.type) {
                             case PING:
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
@@ -341,17 +420,33 @@ public class DynamoServer implements NotificationListener {
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " deleted: " + status);
                                 break;
                             case OBJECT_CREATE:
-                                Pair<String, ObjectInputModel> obj = (Pair<String, ObjectInputModel>) msg.payload;
+                                obj = (Pair<String, ObjectInputModel>) msg.payload;
                                 status = createFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " creatied: " + status);
+                                        + obj.getValue().getKey() + " created: " + status);
                                 break;
                             case OBJECT_READ:
+                                obj = (Pair<String, ObjectInputModel>) msg.payload;
+                                String contents = readFile(obj.getKey(), obj.getValue().getKey());
+                                System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
+                                        + obj.getValue().getKey() + " read: " + contents);
                                 break;
                             case OBJECT_UPDATE:
+                                obj = (Pair<String, ObjectInputModel>) msg.payload;
+                                status = updateFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
+                                System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
+                                        + obj.getValue().getKey() + " updated: " + status);
                                 break;
                             case OBJECT_DELETE:
+                                obj = (Pair<String, ObjectInputModel>) msg.payload;
+                                status = deleteFile(obj.getKey(), obj.getValue().getKey());
+                                System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
+                                        + obj.getValue().getKey() + " deleted: " + status);
                                 break;
+                            case ACKNOWLEDGEMENT:
+                                // This is an acknowledgement received by the server from the nodes
+                                // it sent its request to (response in msg.payload)
+
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
                         }
@@ -407,6 +502,30 @@ public class DynamoServer implements NotificationListener {
                     e.printStackTrace();
                 }
             }
+        }
+    }
+
+    private class Gossiper implements Runnable {
+        private AtomicBoolean keepRunning;
+
+        Gossiper() {
+            keepRunning = new AtomicBoolean(true);
+        }
+
+        public void run() {
+            while (this.keepRunning.get()) {
+                try {
+                    TimeUnit.MILLISECONDS.sleep(DynamoServer.this.gossipInt);
+                    DynamoServer.this.sendMembershipList();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                    this.keepRunning.set(false);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+            }
+            this.keepRunning = null;
         }
     }
 }
