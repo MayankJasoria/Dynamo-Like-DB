@@ -47,10 +47,10 @@ public class Home {
     public OutputModel createBucket(BucketInputModel inputModel) {
         // TODO: Create a folder in each node
         OutputModel outputModel = new OutputModel();
-        dynamoServer.createBucket(inputModel.getBucketName(), OutputModel);
+        dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
 
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
-        return OutputModel;
+        return outputModel;
     }
 
     @DELETE
