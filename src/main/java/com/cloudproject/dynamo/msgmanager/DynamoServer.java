@@ -224,7 +224,7 @@ public class DynamoServer implements NotificationListener {
      * @param payload      the message payload
      * @param dynamoNode   The node to which thhe message to be sent
      */
-    private void sendrequest(MessageTypes messageTypes, Object payload, DynamoNode dynamoNode) {
+    private void sendRequest(MessageTypes messageTypes, Object payload, DynamoNode dynamoNode) {
         ArrayList<DynamoNode> list = new ArrayList<>();
         list.add(dynamoNode);
         sendRequests(messageTypes, payload, list);
@@ -413,40 +413,54 @@ public class DynamoServer implements NotificationListener {
                                 bucketName = (String) msg.payload;
                                 status = createFolder(bucketName);
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " created: " + status);
+                                sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                        MessageTypes.ACKNOWLEDGEMENT, status));
                                 break;
                             case BUCKET_DELETE:
                                 bucketName = (String) msg.payload;
                                 status = deleteFolder(bucketName);
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " deleted: " + status);
+                                sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                        MessageTypes.ACKNOWLEDGEMENT, status));
                                 break;
                             case OBJECT_CREATE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
                                 status = createFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
                                         + obj.getValue().getKey() + " created: " + status);
+                                sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                        MessageTypes.ACKNOWLEDGEMENT, status));
                                 break;
                             case OBJECT_READ:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
                                 String contents = readFile(obj.getKey(), obj.getValue().getKey());
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
                                         + obj.getValue().getKey() + " read: " + contents);
+                                sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                        MessageTypes.ACKNOWLEDGEMENT, contents));
                                 break;
                             case OBJECT_UPDATE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
                                 status = updateFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
                                         + obj.getValue().getKey() + " updated: " + status);
+                                sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                        MessageTypes.ACKNOWLEDGEMENT, status));
                                 break;
                             case OBJECT_DELETE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
                                 status = deleteFile(obj.getKey(), obj.getValue().getKey());
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
                                         + obj.getValue().getKey() + " deleted: " + status);
+                                sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                        MessageTypes.ACKNOWLEDGEMENT, status));
                                 break;
                             case ACKNOWLEDGEMENT:
                                 // This is an acknowledgement received by the server from the nodes
                                 // it sent its request to (response in msg.payload)
 
+                                // TODO: Write contents of msg.payload to Object/BucketOutputModel
+                                // and return to caller API
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
                         }
