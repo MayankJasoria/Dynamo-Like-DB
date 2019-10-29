@@ -13,13 +13,15 @@ import java.net.SocketException;
 @Path("/")
 public class Home {
 
+    private static DynamoServer dynamoServer;
+
     /**
      * Main method, to be used for debugging purposes
      *
      * @param args array of String, may be used for debugging
      */
     public static void main(String[] args) throws SocketException, InterruptedException {
-        DynamoServer.startServer(args);
+        dynamoServer = DynamoServer.startServer(args);
     }
 
     /**
@@ -46,7 +48,9 @@ public class Home {
     public BucketOutputModel createBucket(BucketInputModel inputModel) {
         // TODO: Create a folder in each node
         BucketOutputModel bucketOutputModel = new BucketOutputModel();
-        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
+        dynamoServer.createBucket(inputModel.getBucketName(), bucketOutputModel);
+
+//        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
         return bucketOutputModel;
     }
 
@@ -57,7 +61,7 @@ public class Home {
     public BucketOutputModel deleteBucket(BucketInputModel inputModel) {
         // TODO: Delete the required folder from each node (along with all its data)
         BucketOutputModel bucketOutputModel = new BucketOutputModel();
-        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
+//        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
         return bucketOutputModel;
     }
 

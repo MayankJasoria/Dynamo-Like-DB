@@ -2,17 +2,17 @@ package com.cloudproject.dynamo.models;
 
 public class BucketOutputModel {
 
-    private String response;
+    private Boolean response;
 
     public BucketOutputModel() {
         this.response = null;
     }
 
-    public String getResponse() {
+    public Boolean getResponse() {
         return response;
     }
 
-    public void setResponse(String response) {
+    public void setResponse(Boolean response) {
         this.response = response;
     }
 }

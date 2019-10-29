@@ -19,10 +19,14 @@ public class HashingManager<T extends Node> {
     private final HashFunction hashFunction;
     private final int backups;
 
+    private final Object lock;
+
     public HashingManager(Collection<T> pNodes, int vNodeCount, @NotNull HashFunction hashFunction, int backups) {
         this.hashFunction = hashFunction;
         this.ring = new TreeMap<>();
         this.backups = backups;
+
+        lock = new Object();
 
         // Add all existing nodes to the hash ring
         for (T pNode : pNodes) {
@@ -111,4 +115,9 @@ public class HashingManager<T extends Node> {
         }
         return replicas;
     }
+
+    public Object getLock() {
+        return lock;
+    }
+
 }

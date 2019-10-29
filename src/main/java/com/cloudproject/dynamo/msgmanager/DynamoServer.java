@@ -3,6 +3,7 @@ package com.cloudproject.dynamo.msgmanager;
 import com.cloudproject.dynamo.consistenthash.CityHash;
 import com.cloudproject.dynamo.consistenthash.HashFunction;
 import com.cloudproject.dynamo.consistenthash.HashingManager;
+import com.cloudproject.dynamo.models.BucketOutputModel;
 import com.cloudproject.dynamo.models.ObjectInputModel;
 import javafx.util.Pair;
 import org.apache.commons.io.FileUtils;
@@ -29,6 +30,8 @@ public class DynamoServer implements NotificationListener {
     private final ArrayList<DynamoNode> nodeList;
     private final ArrayList<DynamoNode> deadList;
 
+    private static DynamoServer selfServer;
+
     private DatagramSocket server;
     private String address;
     private DynamoNode node;
@@ -39,8 +42,8 @@ public class DynamoServer implements NotificationListener {
     private int backups;
     private int vNodeCount;
 
-    public DynamoServer(String name, String address, int gossipInt, int ttl, int vNodeCount,
-                        @Nullable ArrayList<String> addr_list, int backups) throws SocketException {
+    private DynamoServer(String name, String address, int gossipInt, int ttl, int vNodeCount,
+                         @Nullable ArrayList<String> addr_list, int backups) throws SocketException {
         this.address = address;
         this.nodeList = new ArrayList<>();
         this.deadList = new ArrayList<>();
@@ -74,6 +77,12 @@ public class DynamoServer implements NotificationListener {
 
         synchronized (DynamoServer.this.deadList) {
             DynamoServer.this.deadList.add(deadNode);
+        }
+
+        if (hashingManager != null) {
+            synchronized (hashingManager.getLock()) {
+                hashingManager.removeNode(deadNode);
+            }
         }
 
         this.printNodeList();
@@ -187,6 +196,11 @@ public class DynamoServer implements NotificationListener {
                                     DynamoNode newNode =
                                             new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
                                     DynamoServer.this.nodeList.add(newNode);
+
+                                    if (hashingManager != null) {
+                                        hashingManager.addNode(newNode, vNodeCount);
+                                    }
+
                                     newNode.startTimer();
                                     System.out.println(">> JOIN: " + newNode.name + " has joined the network");
                                     this.printNodeList();
@@ -198,6 +212,11 @@ public class DynamoServer implements NotificationListener {
                                 DynamoNode newNode =
                                         new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
                                 DynamoServer.this.nodeList.add(newNode);
+
+                                if (hashingManager != null) {
+                                    hashingManager.addNode(newNode, vNodeCount);
+                                }
+
                                 newNode.startTimer();
                                 System.out.println(">> JOIN: " + newNode.name + " has joined the network");
                                 this.printNodeList();
@@ -220,33 +239,35 @@ public class DynamoServer implements NotificationListener {
 //        return newList;
 //    }
 
-    public static void startServer(String[] args) throws SocketException, InterruptedException {
-        if (args == null) {
-            System.out.println("[ERROR] Arguments required");
-        } else if (args.length < 5) {
-            System.out.println("[ERROR] Expected at least 5 arguments, received " + args.length);
-        } else {
-            String[] hashParams = args[4].split(".");
-            int vNodeCount = Integer.parseInt(hashParams[0]);
-            int backups = 0;
-            if (hashParams.length == 2) {
-                backups = Integer.parseInt(hashParams[1]);
-            }
-            if (args.length == 5) {
-                DynamoServer server =
-                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, null, backups);
-                server.start();
-            } else if (args.length == 6) {
-                ArrayList<String> addr_list =
-                        new ArrayList<>(Arrays.asList(args[4].split(",")));
-                DynamoServer server =
-                        new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, addr_list, backups);
-                server.start();
-            }
-            else {
-                System.out.println("[ERROR] Expected 5 or 6 arguments, received " + args.length);
+    public static DynamoServer startServer(String[] args) throws SocketException, InterruptedException {
+        if (selfServer == null) {
+            if (args == null) {
+                System.out.println("[ERROR] Arguments required");
+            } else if (args.length < 5) {
+                System.out.println("[ERROR] Expected at least 5 arguments, received " + args.length);
+            } else {
+                String[] hashParams = args[4].split(".");
+                int vNodeCount = Integer.parseInt(hashParams[0]);
+                int backups = 0;
+                if (hashParams.length == 2) {
+                    backups = Integer.parseInt(hashParams[1]);
+                }
+                if (args.length == 5) {
+                    selfServer =
+                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, null, backups);
+                    selfServer.start();
+                } else if (args.length == 6) {
+                    ArrayList<String> addr_list =
+                            new ArrayList<>(Arrays.asList(args[4].split(",")));
+                    selfServer =
+                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, addr_list, backups);
+                    selfServer.start();
+                } else {
+                    System.out.println("[ERROR] Expected 5 or 6 arguments, received " + args.length);
+                }
             }
         }
+        return selfServer;
     }
 
     /**
@@ -290,17 +311,16 @@ public class DynamoServer implements NotificationListener {
      * Method to create the bucket in the database having the specified name
      *
      * @param name The name of the bucket
-     * @return true if buckets were created successfully, false otherwise
      */
-    public boolean createBucket(String name) {
-        // create folder in current node
-        boolean success = createFolder(name);
+    public void createBucket(String name, BucketOutputModel outputModel) {
+//        // create folder in current node
+//        boolean success = createFolder(name);
 
         // send a request to each node in the system to create the folder
         sendRequests(MessageTypes.BUCKET_CREATE, name);
 
         // TODO: Send the actual response received through acknowledgement message
-        return success;
+
     }
 
     /**
@@ -317,16 +337,15 @@ public class DynamoServer implements NotificationListener {
      * Method to delete a bucket from the database
      *
      * @param name Name of the folder to be deleted
-     * @return true if the folder was deleted successfully, false otherwise
      */
-    public boolean deleteBucket(String name) {
+    public void deleteBucket(String name) {
         boolean status = deleteFolder(name); // delete folder from current node
 
         // send a request to each node in the system to delete the folder
         sendRequests(MessageTypes.BUCKET_DELETE, name);
 
         // TODO: Send the actual response received through acknowledgement message
-        return status;
+
     }
 
     /**
@@ -353,9 +372,8 @@ public class DynamoServer implements NotificationListener {
      *
      * @param bucket     The bucket in which the record is to be added
      * @param inputModel A deserialized object of the record sent by user
-     * @return true if the record was created successfully
      */
-    public boolean addRecord(String bucket, ObjectInputModel inputModel) {
+    public void addRecord(String bucket, ObjectInputModel inputModel) {
         if (hashingManager == null) {
             initializeHashingManager(vNodeCount, new CityHash(), backups);
         }
@@ -365,10 +383,10 @@ public class DynamoServer implements NotificationListener {
                 hashingManager.routeNodes(inputModel.getKey()));
 
         // TODO: Send the actual response received through acknowledgement message
-        return true;
+
     }
 
-    public String readRecord(String bucket, ObjectInputModel inputModel) {
+    public void readRecord(String bucket, ObjectInputModel inputModel) {
         if (hashingManager == null) {
             initializeHashingManager(vNodeCount, new CityHash(), backups);
         }
@@ -378,7 +396,7 @@ public class DynamoServer implements NotificationListener {
                 hashingManager.routeNodes(inputModel.getKey()));
 
         // TODO: Send the actual data to the application
-        return null;
+
     }
 
     /**
