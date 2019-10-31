@@ -25,11 +25,7 @@
 
 package com.cloudproject.dynamo.msgmanager;
 
-import java.io.BufferedWriter;
-import java.io.ByteArrayOutputStream;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.ObjectOutputStream;
 import java.util.Map;
 
 import com.cloudproject.dynamo.vector_clock.core.MessageBufferPacker;
@@ -46,32 +42,32 @@ import com.cloudproject.dynamo.vector_clock.vclock.VClock;
  * should be unique in the current distributed system.
  */
 public class JVec {
-	
+	private DynamoNode dn;
+	/*
     private final String pid;
-    private VClock vc;
+    private VClock vc;*/
     public JVec(DynamoNode src) {
-        this.pid = src.name;
-        initJVector();
+        this.dn=src;
     }
 
     /**
      * Returns the process id of the class.
      */
-    public String getPid() {
+    /*public String getPid() {
         return pid;
     }
 
     /**
      * Returns the vector clock map contained in the class.
      */
-    public VClock getVc() {
+    /*public VClock getVc() {
         return vc;
     }
 
     /**
      * Initialise the vector clock class and open a log file.
      */
-    private void initJVector() {
+    /*private void initJVector() {
 
         this.vc = new VClock();
         this.vc.tick(this.pid);
@@ -108,12 +104,12 @@ public class JVec {
     }*/
 
     private boolean updateClock() {
-        long time = this.vc.findTicks(this.pid);
+        long time = this.dn.getVc().findTicks(dn.name);
         if (time == -1) {
             System.err.println("Could not find process id in its vector clock.");
             return false;
         }
-        this.vc.tick(this.pid);
+        this.dn.getVc().tick(dn.name);
 
         return true;
     }
@@ -151,11 +147,11 @@ public class JVec {
     public synchronized byte[] prepareSend(byte[] packetContent) throws IOException {
         if (!updateClock()) return null;
         MessageBufferPacker packer = MessagePack.newDefaultBufferPacker();
-        packer.packString(this.pid);
+        packer.packString(this.dn.name);
         packer.packBinaryHeader(packetContent.length);
         packer.writePayload(packetContent);
-        packer.packMapHeader(this.vc.getClockMap().size()); // the number of (key, value) pairs
-        for (Map.Entry<String, Long> clock : this.vc.getClockMap().entrySet()) {
+        packer.packMapHeader(this.dn.getVc().getClockMap().size()); // the number of (key, value) pairs
+        for (Map.Entry<String, Long> clock : this.dn.getVc().getClockMap().entrySet()) {
             packer.packString(clock.getKey());
             packer.packLong(clock.getValue());
         }
@@ -181,12 +177,12 @@ public class JVec {
     }*/
 
     private void mergeRemoteClock(VClock remoteClock) {
-        long time = this.vc.findTicks(this.pid);
+        long time = this.dn.getVc().findTicks(this.dn.name);
         if (time == -1) {
             System.err.println("Could not find process id in its vector clock.");
             return;
         }
-        this.vc.merge(remoteClock);
+        this.dn.getVc().merge(remoteClock);
     }
 
     /**
@@ -203,7 +199,7 @@ public class JVec {
      * @param encodedMsg The buffer to be decoded.
      */
     public synchronized byte[] unpackReceive(byte[] encodedMsg) throws IOException {
-        long time = this.vc.findTicks(this.pid);
+        long time = this.dn.getVc().findTicks(dn.name);
         if (time == -1) {
             System.err.println("Could not find process id in its vector clock.");
             return null;
@@ -221,7 +217,7 @@ public class JVec {
             Long clock_time = unpacker.unpackLong();
             remoteClock.set(clock_pid, clock_time);
         }
-        vc.tick(this.pid);
+        dn.getVc().tick(this.dn.name);
         mergeRemoteClock(remoteClock);
        
         unpacker.close();
