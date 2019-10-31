@@ -66,7 +66,8 @@ public class DynamoServer implements NotificationListener {
         this.ttl = ttl;
         if (addr_list != null) {
             for (String addr : addr_list) {
-                this.nodeList.add(new DynamoNode(null, addr, this, 0, ttl));
+            	//vclock
+                this.nodeList.add(new DynamoNode(name, addr, this, 0, ttl));
             }
         }
         this.node = new DynamoNode(name, address, this,0, ttl);
@@ -100,7 +101,8 @@ public class DynamoServer implements NotificationListener {
                 hashingManager.removeNode(deadNode);
             }
         }
-
+        //vclock
+        DynamoServer.this.node.getVc().remove(deadNode.name);
         this.printNodeList();
     }
 
@@ -135,8 +137,9 @@ public class DynamoServer implements NotificationListener {
 
     private void sendMessage(DynamoNode node, DynamoMessage msg) throws IOException {
         //vclock
-        JVec jv=new JVec(DynamoServer.this.node);
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    	JVec jv=new JVec(DynamoServer.this.node);
+    	
+    	ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(baos);
         oos.writeObject(msg);
         byte[] buf = baos.toByteArray();
@@ -148,11 +151,9 @@ public class DynamoServer implements NotificationListener {
         InetAddress dest;
         dest = InetAddress.getByName(host);
 
-        //System.out.println("[DynamoServer] Sending " + msg.type.name() + " (" + buf.length + ") to " + dest.getHostAddress());
         System.out.println("[DynamoServer] Sending " + msg.type.name() + " (" + res.length + ") to " + dest.getHostAddress());
-
+        DynamoServer.this.node.getVc().printVC();
         DatagramSocket socket = new DatagramSocket();
-       // DatagramPacket datagramPacket = new DatagramPacket(buf, buf.length, dest, port);
         DatagramPacket datagramPacket = new DatagramPacket(res, res.length, dest, port);
         socket.send(datagramPacket);
         socket.close();
@@ -177,6 +178,7 @@ public class DynamoServer implements NotificationListener {
             if (dstNode != null) {
                 DynamoMessage listMsg =
                         new DynamoMessage(this.node, MessageTypes.NODE_LIST, this.nodeList);
+               
                 this.sendMessage(dstNode, listMsg);
             }
         }
@@ -274,11 +276,13 @@ public class DynamoServer implements NotificationListener {
                     backups = Integer.parseInt(hashParams[1]);
                 }
                 if (args.length == 5) {
+                	
                     selfServer =
                             new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, null, backups);
                     selfServer.start();
                 } else if (args.length == 6) {
-                    ArrayList<String> addr_list =
+                	System.out.println("ds "+args[0]);
+                    ArrayList<String> addr_list = 
                             new ArrayList<>(Arrays.asList(args[5].split(",")));
                     selfServer =
                             new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, addr_list, backups);
@@ -532,22 +536,24 @@ public class DynamoServer implements NotificationListener {
                 try {
                     DynamoServer.this.server.receive(p);
                     /* Parse this packet into an object */
+                   
                     //vclock
                     JVec jv=new JVec(DynamoServer.this.node);
                     byte[] res=jv.unpackReceive(p.getData());
-                     ByteArrayInputStream bais = new ByteArrayInputStream(res);
-                   // ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                    ByteArrayInputStream bais = new ByteArrayInputStream(res);
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
+                    	
                         DynamoMessage msg = (DynamoMessage) readObject;
-                        boolean status;
+                    		boolean status;
                         String bucketName = null;
                         Pair<String, ObjectInputModel> obj = null;
                         // TODO: Implement sending of acknowledgement message
                         switch (msg.type) {
                             case PING:
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
+                                node.getVc().printVC();
                                 break;
                             case NODE_LIST:
                                 DynamoServer.this.mergeMembershipLists(msg.srcNode, msg.payload);
@@ -670,7 +676,11 @@ public class DynamoServer implements NotificationListener {
                 try {
                     DynamoServer.this.ioServer.receive(p);
                     /* Parse this packet into an object */
-                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                  //vclock
+                    JVec jv=new JVec(DynamoServer.this.node);
+                    byte[] res=jv.unpackReceive(p.getData());
+                    ByteArrayInputStream bais = new ByteArrayInputStream(res);
+                    //ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
@@ -768,7 +778,11 @@ public class DynamoServer implements NotificationListener {
                 try {
                     DynamoServer.this.server.receive(p);
                     /* Parse this packet into an object */
-                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                  //vclock
+                    JVec jv=new JVec(DynamoServer.this.node);
+                    byte[] res=jv.unpackReceive(p.getData());
+                    ByteArrayInputStream bais = new ByteArrayInputStream(res);
+                    //ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
