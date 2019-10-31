@@ -69,6 +69,7 @@ public class DynamoServer implements NotificationListener {
                 this.nodeList.add(new DynamoNode(null, addr, this, 0, ttl));
             }
         }
+
         this.node = new DynamoNode(name, address, this,0, ttl);
         int port = Integer.parseInt(address.split(":")[1]);
 
@@ -111,9 +112,19 @@ public class DynamoServer implements NotificationListener {
                 localNode.startTimer();
             }
         }
+        /* read logs, update heartbeat from previous session */
+        File file = new File(this.node.name + ".log");
+        if (file.exists()) {
+            try {
+                int log_hb = Integer.parseInt(FileUtils.readFileToString(file, Charset.defaultCharset()));
+                this.node.setHeartbeat(log_hb);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
 
-        this.executorService.execute(new MessageReceiver());
         //exec.execute(new PingSender());
+        this.executorService.execute(new GossipReceiver());
         this.executorService.execute(new Gossiper());
         this.executorService.execute(new ioReceiver());
         this.printNodeList();
@@ -143,7 +154,14 @@ public class DynamoServer implements NotificationListener {
 //        byte[] res=jv.prepareSend(buf);
         String address = node.getAddress();
         String host = address.split(":")[0];
-        int port = Integer.parseInt(address.split(":")[1]);
+        int port;
+        if (msg.type == MessageTypes.NODE_LIST) {
+            port = Integer.parseInt(address.split(":")[1]);
+        } else if (msg.type == MessageTypes.ACKNOWLEDGEMENT) {
+            port = this.ackPort;
+        } else {
+            port = this.ioPort;
+        }
 
         InetAddress dest;
         dest = InetAddress.getByName(host);
@@ -171,6 +189,8 @@ public class DynamoServer implements NotificationListener {
 
     private void sendMembershipList() throws IOException {
         this.node.setHeartbeat(this.node.getHeartbeat() + 1);
+        File file = new File(this.node.name + ".log");
+        FileUtils.write(file, Integer.toString(this.node.getHeartbeat()), Charset.defaultCharset(), false);
         //ArrayList<DynamoNode> sendList = cloneArrayList(this.nodeList);
         synchronized (this.nodeList) {
             DynamoNode dstNode = this.getRandomNode();
@@ -515,10 +535,10 @@ public class DynamoServer implements NotificationListener {
     }
 
     @SuppressWarnings("unchecked")
-    private class MessageReceiver implements Runnable {
+    private class GossipReceiver implements Runnable {
         private AtomicBoolean keepRunning;
 
-        public MessageReceiver() {
+        public GossipReceiver() {
             keepRunning = new AtomicBoolean(true);
         }
 
