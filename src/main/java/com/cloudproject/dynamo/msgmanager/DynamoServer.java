@@ -129,9 +129,9 @@ public class DynamoServer implements NotificationListener {
         this.executorService.execute(new ioReceiver());
         this.printNodeList();
 
-        while (true) {
-            TimeUnit.SECONDS.sleep(10);
-        }
+//        while (true) {
+//            TimeUnit.SECONDS.sleep(2);
+//        }
     }
 
     private void printNodeList() {
@@ -279,7 +279,7 @@ public class DynamoServer implements NotificationListener {
 //        return newList;
 //    }
 
-    public static DynamoServer startServer(String[] args) throws SocketException, InterruptedException {
+    public static DynamoServer startServer(String... args) throws SocketException, InterruptedException {
         if (selfServer == null) {
             if (args == null) {
                 System.out.println("[ERROR] Arguments required");
@@ -534,7 +534,6 @@ public class DynamoServer implements NotificationListener {
         return status;
     }
 
-    @SuppressWarnings("unchecked")
     private class GossipReceiver implements Runnable {
         private AtomicBoolean keepRunning;
 
@@ -708,7 +707,7 @@ public class DynamoServer implements NotificationListener {
                                 status = createFolder(bucketName);
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " created: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT, new Pair<>(bucketName, status)));
                                 break;
                             case BUCKET_DELETE:
                                 bucketName = (String) msg.payload;
@@ -765,7 +764,6 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private class AckReceiver extends Thread {
         private AtomicBoolean keepRunning;
         private DatagramSocket ackServer;
@@ -777,8 +775,13 @@ public class DynamoServer implements NotificationListener {
             this.outputModel = outputModel;
         }
 
+        @SuppressWarnings("unchecked")
         @Override
         public void run() {
+            // TODO: change quorum to actual quorum-based implementation
+            int quorum = nodeList.size();
+            int receives = 0;
+
             while (keepRunning.get()) {
                 /* Logic for receiving */
                 System.out.println("AckGhot");
@@ -786,14 +789,41 @@ public class DynamoServer implements NotificationListener {
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
                 try {
-                    DynamoServer.this.server.receive(p);
+                    this.ackServer.receive(p);
                     /* Parse this packet into an object */
                     ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
+                        // TODO: Update method to manage successful receives vs. no. of receives
+                        receives++;
                         DynamoMessage msg = (DynamoMessage) readObject;
-                        /* TODO: Register ACK */
+                        switch (msg.type) {
+                            case BUCKET_CREATE:
+                                if (receives > 0) {
+                                    outputModel.setStatus(outputModel.isStatus() &
+                                            ((Pair<String, Boolean>) msg.payload).getValue());
+                                } else {
+                                    outputModel.setStatus((Boolean) msg.payload);
+                                }
+                                if (receives == quorum) {
+                                    outputModel.setResponse("Bucket " + ((Pair<String, Boolean>) msg.payload).getKey()
+                                            + ((outputModel.isStatus()) ? " created successfully" : "creation failed"));
+                                }
+                                break;
+                            case BUCKET_DELETE:
+                                if (receives > 0) {
+                                    outputModel.setStatus(outputModel.isStatus() & (Boolean) msg.payload);
+                                } else {
+                                    outputModel.setStatus((Boolean) msg.payload);
+                                }
+                                break;
+                            default:
+                                System.out.println("Unrecognized packet type!");
+                        }
+                        if (receives >= quorum) {
+                            keepRunning.set(false);
+                        }
                     } else {
                         System.out.println("Malformed packet!");
                     }
@@ -804,7 +834,9 @@ public class DynamoServer implements NotificationListener {
                     e.printStackTrace();
                 }
             }
-
+            if (!ackServer.isClosed()) {
+                ackServer.close();
+            }
         }
     }
 }

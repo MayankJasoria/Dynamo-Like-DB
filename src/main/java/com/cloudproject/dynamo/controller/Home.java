@@ -36,7 +36,8 @@ public class Home {
      */
     @GET
     @Path("test")
-    public String helloWorld() {
+    public String helloWorld() throws SocketException, InterruptedException {
+        startDynamoServer();
         return "Hello World!";
     }
 
@@ -44,9 +45,10 @@ public class Home {
     @Path("Bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel createBucket(BucketInputModel inputModel) {
+    public OutputModel createBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
         // TODO: Create a folder in each node
         OutputModel outputModel = new OutputModel();
+        startDynamoServer();
         dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
 
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
@@ -89,5 +91,11 @@ public class Home {
     public OutputModel deleteObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
         // TODO: delete the required object (file) from each node where requried
         return null;
+    }
+
+    private void startDynamoServer() throws SocketException, InterruptedException {
+        if (dynamoServer == null) {
+            dynamoServer = DynamoServer.startServer("REST-Host", "172.17.73.158:9350", "2000", "20000", "5", "172.17.23.50:9350");
+        }
     }
 }
