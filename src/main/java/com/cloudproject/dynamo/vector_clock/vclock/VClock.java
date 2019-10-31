@@ -49,7 +49,7 @@ public class VClock implements Serializable{
      * Returns a new vector clock map and initiliases the map containing the clocks.
      */
     private TreeMap<String, Long> clockInit() {
-    	System.out.println("constr");
+    	
         return new TreeMap<>();
     }
 
@@ -65,8 +65,7 @@ public class VClock implements Serializable{
         if (!this.vc.isEmpty() && this.vc.containsKey(pid)) this.vc.put(pid, this.vc.get(pid) + 1);
         else
         	{
-        	System.out.println("hi "+pid);
-        	System.out.println(vc);
+        	
         	vc.put(pid, (long) 1);
         	}
 
