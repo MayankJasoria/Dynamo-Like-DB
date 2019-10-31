@@ -23,7 +23,7 @@ public class DynamoNode implements Serializable, Cloneable, Node {
 
 	public DynamoNode(String name, String address, DynamoServer server, int heartbeat, int ttl) {
         this.name = name;
-        System.out.println("dn "+name);
+        
         this.address = address;
         this.heartbeat = heartbeat;
         this.timeoutTimer = new TimeoutTimer(ttl, server, this);
