@@ -281,7 +281,7 @@ public class DynamoServer implements NotificationListener {
                             new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, null, backups);
                     selfServer.start();
                 } else if (args.length == 6) {
-                	System.out.println("ds "+args[0]);
+                	
                     ArrayList<String> addr_list = 
                             new ArrayList<>(Arrays.asList(args[5].split(",")));
                     selfServer =
