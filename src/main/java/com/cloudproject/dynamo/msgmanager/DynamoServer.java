@@ -51,7 +51,12 @@ public class DynamoServer implements NotificationListener {
 
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
-                DynamoServer.this.server.close();
+                if (!DynamoServer.this.server.isClosed()) {
+                    DynamoServer.this.server.close();
+                }
+                if (!DynamoServer.this.ioServer.isClosed()) {
+                    DynamoServer.this.ioServer.close();
+                }
                 System.out.println("Goodbye my friends...");
             }
         }));
@@ -362,7 +367,7 @@ public class DynamoServer implements NotificationListener {
             AckReceiver ackThread = new AckReceiver(outputModel);
             this.executorService.execute(ackThread);
             while (ackThread.isAlive()) {
-                TimeUnit.MILLISECONDS.sleep(100);
+                TimeUnit.MILLISECONDS.sleep(1);
             }
         } catch (SocketException e) {
             outputModel.setStatus(false);
@@ -388,13 +393,23 @@ public class DynamoServer implements NotificationListener {
      *
      * @param name Name of the folder to be deleted
      */
-    public void deleteBucket(String name) {
-        boolean status = deleteFolder(name); // delete folder from current node
+    public void deleteBucket(String name, OutputModel outputModel) {
 
         // send a request to each node in the system to delete the folder
         sendRequests(MessageTypes.BUCKET_DELETE, name);
 
-        // TODO: Send the actual response received through acknowledgement message
+        try {
+            AckReceiver ackReceiver = new AckReceiver(outputModel);
+            this.executorService.execute(ackReceiver);
+            while (ackReceiver.isAlive()) {
+                TimeUnit.SECONDS.sleep(1);
+            }
+        } catch (SocketException e) {
+            outputModel.setStatus(false);
+            e.printStackTrace();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
 
     }
 
@@ -413,7 +428,6 @@ public class DynamoServer implements NotificationListener {
             e.printStackTrace();
         }
 
-        // TODO: Send the actual response received through acknowledgement message
         return status;
     }
 

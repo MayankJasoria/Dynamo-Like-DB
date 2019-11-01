@@ -46,7 +46,6 @@ public class Home {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public OutputModel createBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
-        // TODO: Create a folder in each node
         OutputModel outputModel = new OutputModel();
         startDynamoServer();
         dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
@@ -59,10 +58,12 @@ public class Home {
     @Path("Bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel deleteBucket(BucketInputModel inputModel) {
-        // TODO: Delete the required folder from each node (along with all its data)
+    public OutputModel deleteBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
         OutputModel outputModel = new OutputModel();
+        startDynamoServer();
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
+        dynamoServer.deleteBucket(inputModel.getBucketName(), outputModel);
+
         return outputModel;
     }
 
