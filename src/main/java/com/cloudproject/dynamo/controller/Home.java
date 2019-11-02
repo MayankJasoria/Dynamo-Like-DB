@@ -35,10 +35,10 @@ public class Home {
      * @return the String "Hello World!
      */
     @GET
-    @Path("test")
-    public String helloWorld() throws SocketException, InterruptedException {
+    @Path("start")
+    public String start() throws SocketException, InterruptedException {
         startDynamoServer();
-        return "Hello World!";
+        return "REST server started successfully!";
     }
 
     @GET

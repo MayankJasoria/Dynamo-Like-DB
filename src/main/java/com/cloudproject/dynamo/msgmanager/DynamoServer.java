@@ -852,6 +852,14 @@ public class DynamoServer implements NotificationListener {
                 ackServer.close();
             }
         }
+
+        @Override
+        public void interrupt() {
+            super.interrupt();
+            if (!this.ackServer.isClosed()) {
+                this.ackServer.close();
+            }
+        }
     }
 
     public void shutdownDynamoServer(OutputModel outputModel) {
