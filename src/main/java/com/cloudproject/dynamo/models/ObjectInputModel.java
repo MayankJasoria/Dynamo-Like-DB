@@ -1,9 +1,11 @@
 package com.cloudproject.dynamo.models;
 
+import java.io.Serializable;
+
 /**
  * Class used to deserialize an input JSON into a POJO
  */
-public class ObjectInputModel {
+public class ObjectInputModel implements Serializable {
 
     private String key;
     private String value;

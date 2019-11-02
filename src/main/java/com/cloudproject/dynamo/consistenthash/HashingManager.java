@@ -93,7 +93,9 @@ public class HashingManager<T extends Node> {
             if (tailMap.isEmpty()) {
                 tailMap = ring.tailMap(ring.firstKey());
             }
-            nodesList.add(ring.get(tailMap.firstKey()).getPhysicalNode());
+            if (!nodesList.contains(ring.get(tailMap.firstKey()).getPhysicalNode())) {
+                nodesList.add(ring.get(tailMap.firstKey()).getPhysicalNode());
+            }
             tailMap = ring.tailMap(tailMap.firstKey());
         }
 
