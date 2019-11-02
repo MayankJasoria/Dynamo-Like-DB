@@ -437,8 +437,49 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
-    private void forwardToRandNode(String bucketName, String objName, OutputModel outputModel) {
-        /* TODO: Do some overload */
+    /**
+     * Method to perform CRUD operations on objects of the database
+     *
+     * @param messageType THe type of operation to be performed
+     * @param bucketName  the name of the bucket in which the object resides
+     * @param inputObject POJO containing the key and value of the object
+     * @param outputModel POJO which will return the response
+     */
+    public void forwardToRandNode(MessageTypes messageType, String bucketName,
+                                  Object inputObject, OutputModel outputModel) {
+        try {
+            Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
+            sendRequestToRandNode(new ForwardPayload(messageType, bucketName, inputObject, 2));
+            future.get(20, TimeUnit.SECONDS);
+
+            // outputModel contains status, read status and set message
+            switch (messageType) {
+                case OBJECT_CREATE:
+                    outputModel.setResponse("Record " +
+                            ((ObjectInputModel) inputObject).getKey() + " : " + ((ObjectInputModel) inputObject).getValue() +
+                            (outputModel.isStatus() ? " creation successfully" : " creation failed"));
+                    break;
+                case OBJECT_READ:
+                    // value should already be written
+                    break;
+                case OBJECT_UPDATE:
+                    outputModel.setResponse("Record " +
+                            ((ObjectInputModel) inputObject).getKey() + " : " + ((ObjectInputModel) inputObject).getValue() +
+                            (outputModel.isStatus() ? " updated successfully" : " updation failed"));
+                    break;
+                case OBJECT_DELETE:
+                    outputModel.setResponse("Record " +
+                            ((ObjectInputModel) inputObject).getKey() + " : " + ((ObjectInputModel) inputObject).getValue() +
+                            (outputModel.isStatus() ? " removal successfully" : " removed failed"));
+                    break;
+            }
+        } catch (ExecutionException | InterruptedException | IOException e) {
+            outputModel.setStatus(false);
+            outputModel.setResponse(e.getMessage());
+        } catch (TimeoutException e) {
+            System.out.println(">> Response timeout! Use sloppy quorum!");
+            e.printStackTrace();
+        }
     }
 
     /**
@@ -941,46 +982,46 @@ public class DynamoServer implements NotificationListener {
     }
 
     private class ReceiveFromRandNode extends Thread {
-        private AtomicBoolean keepRunning;
+        //        private AtomicBoolean keepRunning;
         private DatagramSocket randRecvServer;
         private OutputModel outputModel;
 
         ReceiveFromRandNode(OutputModel outputModel) throws SocketException {
-            keepRunning = new AtomicBoolean(true);
+//            keepRunning = new AtomicBoolean(true);
             randRecvServer = new DatagramSocket(DynamoServer.this.ackPort);
             this.outputModel = outputModel;
         }
 
         @Override
         public void run() {
-            while (keepRunning.get()) {
+//            while (keepRunning.get()) {
                 /* Logic for receiving */
-                System.out.println(">> REST: randRecv: init");
-                /* init a buffer where the packet will be placed */
-                byte[] buf = new byte[1500];
-                DatagramPacket p = new DatagramPacket(buf, buf.length);
-                try {
-                    this.randRecvServer.receive(p);
-                    /* Parse this packet into an object */
-                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
-                    ObjectInputStream ois = new ObjectInputStream(bais);
-                    Object readObject = ois.readObject();
-                    if (readObject instanceof DynamoMessage) {
-                        // Receive from rand node and set output
-                        boolean status = (boolean) ((DynamoMessage) readObject).payload;
-                        outputModel.setStatus(status);
-                    } else {
-                        System.out.println("Malformed packet!");
-                    }
-                } catch (IOException e) {
-                    outputModel.setResponse(e.getMessage());
-                    outputModel.setStatus(false);
-                    //e.printStackTrace();
-                    keepRunning.set(false);
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
+            System.out.println(">> REST: randRecv: init");
+            /* init a buffer where the packet will be placed */
+            byte[] buf = new byte[1500];
+            DatagramPacket p = new DatagramPacket(buf, buf.length);
+            try {
+                this.randRecvServer.receive(p);
+                /* Parse this packet into an object */
+                ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                ObjectInputStream ois = new ObjectInputStream(bais);
+                Object readObject = ois.readObject();
+                if (readObject instanceof DynamoMessage) {
+                    // Receive from rand node and set output
+                    boolean status = (boolean) ((DynamoMessage) readObject).payload;
+                    outputModel.setStatus(status);
+                } else {
+                    System.out.println("Malformed packet!");
                 }
+            } catch (IOException e) {
+                outputModel.setResponse(e.getMessage());
+                outputModel.setStatus(false);
+                //e.printStackTrace();
+//                    keepRunning.set(false);
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
             }
+//            }
             if (!randRecvServer.isClosed()) {
                 randRecvServer.close();
             }

@@ -5,13 +5,13 @@ import java.io.Serializable;
 public class ForwardPayload implements Serializable {
     private MessageTypes requestType;
     private String bucketName;
-    private String objectName;
+    private Object inputModel;
     private long txnID;
 
-    public ForwardPayload(MessageTypes requestType, String bucketName, String objectName, long txnID) {
+    public ForwardPayload(MessageTypes requestType, String bucketName, Object inputModel, long txnID) {
         this.requestType = requestType;
         this.bucketName = bucketName;
-        this.objectName = objectName;
+        this.inputModel = inputModel;
         this.txnID = txnID;
     }
 
@@ -23,8 +23,8 @@ public class ForwardPayload implements Serializable {
         return bucketName;
     }
 
-    public String getObjectName() {
-        return objectName;
+    public Object getInputModel() {
+        return inputModel;
     }
 
     public long getTxnID() {

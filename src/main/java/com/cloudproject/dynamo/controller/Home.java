@@ -37,7 +37,7 @@ public class Home {
      */
     @GET
     @Path("start")
-    public String start() throws SocketException, InterruptedException {
+    public String start() throws SocketException {
         startDynamoServer();
         return "REST server started successfully!";
     }
@@ -54,7 +54,7 @@ public class Home {
     @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel createBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
+    public OutputModel createBucket(BucketInputModel inputModel) throws SocketException {
         OutputModel outputModel = new OutputModel();
         startDynamoServer();
 //        dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
@@ -67,7 +67,7 @@ public class Home {
     @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel deleteBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
+    public OutputModel deleteBucket(BucketInputModel inputModel) throws SocketException {
         OutputModel outputModel = new OutputModel();
         startDynamoServer();
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
@@ -77,30 +77,55 @@ public class Home {
     }
 
     @POST
-    @Path("{bucketname}")
+    @Path("{bucketName}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel createObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
-        // TODO: Create the new object (file) in the required nodes
-        return null;
+    public OutputModel createObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName) throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_CREATE, bucketName, inputModel, outputModel);
+
+        return outputModel;
     }
 
     @PUT
-    @Path("{bucketname}")
+    @Path("{bucketName}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
-        // TODO: replace old file with new file in each node for requested object
-        return null;
+    public OutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName) throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_UPDATE, bucketName, inputModel, outputModel);
+
+        return outputModel;
     }
 
     @DELETE
-    @Path("{bucketname}")
+    @Path("{bucketName}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel deleteObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
-        // TODO: delete the required object (file) from each node where requried
-        return null;
+    public OutputModel deleteObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName) throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_DELETE, bucketName, inputModel, outputModel);
+
+        return outputModel;
+    }
+
+    @GET
+    @Path("{bucketName}/{objectKey}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public OutputModel readObject(@PathParam("bucketName") String bucketName,
+                                  @PathParam("objectKey") String objectKey) throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_READ, bucketName, objectKey, outputModel);
+
+        return outputModel;
     }
 
     private void startDynamoServer() throws SocketException {
