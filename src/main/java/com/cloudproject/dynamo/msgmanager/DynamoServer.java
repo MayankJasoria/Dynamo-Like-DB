@@ -366,9 +366,10 @@ public class DynamoServer implements NotificationListener {
         try {
             AckReceiver ackThread = new AckReceiver(outputModel);
             this.executorService.execute(ackThread);
-            while (ackThread.isAlive()) {
-                TimeUnit.MILLISECONDS.sleep(1);
-            }
+//            while (ackThread.isAlive()) {
+//                TimeUnit.MILLISECONDS.sleep(1);
+//            }
+            ackThread.join();
         } catch (SocketException e) {
             outputModel.setStatus(false);
             outputModel.setResponse(e.getMessage());
