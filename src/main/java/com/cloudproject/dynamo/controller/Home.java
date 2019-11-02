@@ -4,6 +4,7 @@ import com.cloudproject.dynamo.models.BucketInputModel;
 import com.cloudproject.dynamo.models.ObjectInputModel;
 import com.cloudproject.dynamo.models.OutputModel;
 import com.cloudproject.dynamo.msgmanager.DynamoServer;
+import com.cloudproject.dynamo.msgmanager.MessageTypes;
 
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
@@ -56,8 +57,8 @@ public class Home {
     public OutputModel createBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
         OutputModel outputModel = new OutputModel();
         startDynamoServer();
-        dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
-
+//        dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
+        dynamoServer.forwardToRandNode(MessageTypes.BUCKET_CREATE, inputModel.getBucketName(), outputModel);
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
         return outputModel;
     }
@@ -70,7 +71,7 @@ public class Home {
         OutputModel outputModel = new OutputModel();
         startDynamoServer();
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
-        dynamoServer.deleteBucket(inputModel.getBucketName(), outputModel);
+        dynamoServer.forwardToRandNode(MessageTypes.BUCKET_DELETE, inputModel.getBucketName(), outputModel);
 
         return outputModel;
     }

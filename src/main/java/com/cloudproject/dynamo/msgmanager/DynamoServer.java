@@ -158,7 +158,7 @@ public class DynamoServer implements NotificationListener {
         int port;
         if (msg.type == MessageTypes.NODE_LIST) {
             port = Integer.parseInt(address.split(":")[1]);
-        } else if (msg.type == MessageTypes.ACKNOWLEDGEMENT) {
+        } else if (msg.type == MessageTypes.ACKNOWLEDGEMENT | msg.type == MessageTypes.FORWARD_ACK) {
             port = this.ackPort;
         } else {
             port = this.ioPort;
@@ -344,14 +344,14 @@ public class DynamoServer implements NotificationListener {
     /**
      * Method to send a request to a specific node
      *
-     * @param messageTypes The type of message tp be sent
      * @param payload      the message payload
-     * @param dynamoNode   The node to which the message to be sent
      */
-    private void sendRequest(MessageTypes messageTypes, Object payload, DynamoNode dynamoNode) {
-        ArrayList<DynamoNode> list = new ArrayList<>();
-        list.add(dynamoNode);
-        sendRequests(messageTypes, payload, list);
+    private void sendRequestToRandNode(Object payload)
+            throws IOException {
+//        ArrayList<DynamoNode> list = new ArrayList<>();
+//        list.add(dynamoNode);
+//        sendRequests(MessageTypes.FORWARD, payload, list);
+        this.sendMessage(getRandomNode(), new DynamoMessage(this.node, MessageTypes.FORWARD, payload));
     }
 
 
@@ -360,28 +360,111 @@ public class DynamoServer implements NotificationListener {
      *
      * @param name The name of the bucket
      */
-    public void createBucket(String name, OutputModel outputModel) {
+    private boolean createBucket(String name) {
 //        // create folder in current node
-//        boolean success = createFolder(name);
+        AtomicBoolean success = new AtomicBoolean(false);
+        /* TODO: Add quorum implementation */
+        success.set(createFolder(name));
 
-        // send a request to each node in the system to create the folder
-        sendRequests(MessageTypes.BUCKET_CREATE, name);
         /* Spawn ack thread to collect acks, and write to output model */
         try {
-            AckReceiver ackThread = new AckReceiver(outputModel);
+            AckReceiver ackThread = new AckReceiver(success);
             Future future = this.executorService.submit(ackThread);
-//            while (ackThread.isAlive()) {
-//                TimeUnit.MILLISECONDS.sleep(1);
-//            }
-            future.get();
-        } catch (SocketException e) {
-            outputModel.setStatus(false);
-            outputModel.setResponse(e.getMessage());
-        } catch (InterruptedException | ExecutionException e) {
+
+            // send a request to each node in the system to create the folder
+            sendRequests(MessageTypes.BUCKET_CREATE, name);
+
+            // wait for thread termination
+            future.get(10, TimeUnit.SECONDS);
+        } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+            success.set(false);
             e.printStackTrace();
         }
 
+        return success.get();
+
     }
+
+    public void forwardToRandNode(MessageTypes messageType, String bucketName, OutputModel outputModel) {
+        try {
+            Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
+            sendRequestToRandNode(new ForwardPayload(messageType, bucketName, null, 0));
+            future.get(10, TimeUnit.SECONDS);
+
+            // outputModel contains status, read status and set message
+            switch (messageType) {
+                case BUCKET_CREATE:
+                    outputModel.setResponse("Bucket " + bucketName +
+                            (outputModel.isStatus() ? " created successfully" : " creation failed"));
+                    break;
+                case BUCKET_DELETE:
+                    outputModel.setResponse("Bucket " + bucketName +
+                            (outputModel.isStatus() ? " deleted successfully" : " deletion failed"));
+                    break;
+            }
+
+        } catch (ExecutionException | InterruptedException | IOException e) {
+            outputModel.setStatus(false);
+            outputModel.setResponse(e.getMessage());
+        } catch (TimeoutException e) {
+            System.out.println(">> Response timeout! Use sloppy quorum!");
+            e.printStackTrace();
+        }
+    }
+
+    private void forwardToRandNode(String bucketName, String objName, OutputModel outputModel) {
+        /* TODO: Do some overload */
+    }
+
+    private class ReceiveFromRandNode extends Thread {
+        private AtomicBoolean keepRunning;
+        private DatagramSocket randRecvServer;
+        private OutputModel outputModel;
+
+        ReceiveFromRandNode(OutputModel outputModel) throws SocketException {
+            keepRunning = new AtomicBoolean(true);
+            randRecvServer = new DatagramSocket(DynamoServer.this.ackPort);
+            this.outputModel = outputModel;
+        }
+
+        @SuppressWarnings("unchecked")
+        @Override
+        public void run() {
+            while (keepRunning.get()) {
+                /* Logic for receiving */
+                System.out.println(">> REST: randRecv: init");
+                /* init a buffer where the packet will be placed */
+                byte[] buf = new byte[1500];
+                DatagramPacket p = new DatagramPacket(buf, buf.length);
+                try {
+                    this.randRecvServer.receive(p);
+                    /* Parse this packet into an object */
+                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                    ObjectInputStream ois = new ObjectInputStream(bais);
+                    Object readObject = ois.readObject();
+                    if (readObject instanceof DynamoMessage) {
+                        // Receive from rand node and set output
+                        boolean status = (boolean) ((DynamoMessage) readObject).payload;
+                        outputModel.setStatus(status);
+                    } else {
+                        System.out.println("Malformed packet!");
+                    }
+                } catch (IOException e) {
+                    outputModel.setResponse(e.getMessage());
+                    outputModel.setStatus(false);
+                    //e.printStackTrace();
+                    keepRunning.set(false);
+                } catch (ClassNotFoundException e) {
+                    e.printStackTrace();
+                }
+            }
+            if (!randRecvServer.isClosed()) {
+                randRecvServer.close();
+            }
+        }
+    }
+
+
 
     /**
      * Method to create a folder in current node
@@ -397,23 +480,28 @@ public class DynamoServer implements NotificationListener {
      * Method to delete a bucket from the database
      *
      * @param name Name of the folder to be deleted
+     * @return true if folder was deleted successfully, false otherwise
      */
-    public void deleteBucket(String name, OutputModel outputModel) {
+    private boolean deleteBucket(String name) {
 
-        // send a request to each node in the system to delete the folder
-        sendRequests(MessageTypes.BUCKET_DELETE, name);
+
+        AtomicBoolean success = new AtomicBoolean(false);
+        success.set(deleteFolder(name));
 
         try {
-            AckReceiver ackThread = new AckReceiver(outputModel);
+            AckReceiver ackThread = new AckReceiver(success);
             Future future = this.executorService.submit(ackThread);
-            future.get();
 
-        } catch (SocketException e) {
-            outputModel.setStatus(false);
-            outputModel.setResponse(e.getMessage());
-        } catch (InterruptedException | ExecutionException e) {
+            // send a request to each node in the system to delete the folder
+            sendRequests(MessageTypes.BUCKET_DELETE, name);
+
+            // wait for thread termination
+            future.get(10, TimeUnit.SECONDS);
+        } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+            success.set(false);
             e.printStackTrace();
         }
+        return success.get();
 
     }
 
@@ -626,7 +714,9 @@ public class DynamoServer implements NotificationListener {
                     TimeUnit.MILLISECONDS.sleep(2000);
                     for (DynamoNode node : nodeList) {
                         try {
-                            DynamoServer.this.sendMessage(node, sendMsg);
+                            if (!node.isApiNode()) {
+                                DynamoServer.this.sendMessage(node, sendMsg);
+                            }
                         } catch (IOException e) {
                             System.out.println("[WARN] Could not send " + sendMsg.type.name() +
                                     " to " + node.name + " (" + node.getAddress() + ")");
@@ -767,6 +857,23 @@ public class DynamoServer implements NotificationListener {
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
                                         MessageTypes.ACKNOWLEDGEMENT, status));
                                 break;
+                            case FORWARD:
+                                ForwardPayload payload = (ForwardPayload) msg.payload;
+                                switch (payload.getRequestType()) {
+                                    case BUCKET_CREATE:
+                                        status = createBucket(payload.getBucketName());
+                                        break;
+                                    case BUCKET_DELETE:
+                                        status = deleteBucket(payload.getBucketName());
+                                        break;
+                                    default:
+                                        status = false;
+                                }
+
+                                // return to ForwardReceiver
+                                sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                        MessageTypes.FORWARD_ACK, status));
+                                break;
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
                         }
@@ -786,20 +893,19 @@ public class DynamoServer implements NotificationListener {
     private class AckReceiver extends Thread {
         private AtomicBoolean keepRunning;
         private DatagramSocket ackServer;
-        private OutputModel outputModel;
+        private AtomicBoolean status;
 
-        public AckReceiver(OutputModel outputModel) throws SocketException {
+        public AckReceiver(AtomicBoolean status) throws SocketException {
             keepRunning = new AtomicBoolean(true);
             ackServer = new DatagramSocket(DynamoServer.this.ackPort);
-            this.outputModel = outputModel;
-            this.outputModel.setStatus(true);
+            this.status = status;
         }
 
         @SuppressWarnings("unchecked")
         @Override
         public void run() {
             // TODO: change quorum to actual quorum-based implementation
-            int quorum = nodeList.size();
+            int quorum = nodeList.size() - 1;
             int receives = 0;
             System.out.println(">> ACK: quorum init: " + quorum + " receives init : " + receives);
             while (keepRunning.get()) {
@@ -820,40 +926,34 @@ public class DynamoServer implements NotificationListener {
                         System.out.println(">> ACK: quorum: " + quorum + " receives: " + receives);
                         DynamoMessage msg = (DynamoMessage) readObject;
                         AckPayload payload = (AckPayload) msg.payload;
-                        outputModel.setStatus(outputModel.isStatus() & (payload.isStatus()));
+                        this.status.set(this.status.get() & (payload.isStatus()));
                         /* TODO: track separate receives by txnID */
                         if (receives >= quorum) {
                             System.out.println(">> ACK: Quorum achieved! Success!");
                             switch (payload.getRequestType()) {
                                 case BUCKET_CREATE:
-                                    outputModel.setResponse("Bucket " + payload.getIdentifier()
-                                            + ((outputModel.isStatus()) ? " created successfully" : " creation failed"));
                                     System.out.println(">> ACK: Quorum achieved: Setting BUCKET_CREATE response");
                                     break;
                                 case BUCKET_DELETE:
-                                    outputModel.setResponse("Bucket " + payload.getIdentifier()
-                                            + ((outputModel.isStatus()) ? " deleted successfully" : " deletion failed"));
                                     System.out.println(">> ACK: Quorum achieved: Setting BUCKET_DELETE response");
                                     break;
                                 default:
                                     System.out.println("Unrecognized packet type!");
                             }
-                            keepRunning.set(false);
+                            this.keepRunning.set(false);
                         }
                     } else {
                         System.out.println("Malformed packet!");
                     }
                 } catch (IOException e) {
-                    outputModel.setResponse(e.getMessage());
-                    outputModel.setStatus(false);
-                    //e.printStackTrace();
-                    keepRunning.set(false);
+                    e.printStackTrace();
+                    this.keepRunning.set(false);
                 } catch (ClassNotFoundException e) {
                     e.printStackTrace();
                 }
             }
-            if (!ackServer.isClosed()) {
-                ackServer.close();
+            if (!this.ackServer.isClosed()) {
+                this.ackServer.close();
             }
         }
 
