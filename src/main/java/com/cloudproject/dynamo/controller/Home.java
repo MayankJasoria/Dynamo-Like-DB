@@ -41,6 +41,14 @@ public class Home {
         return "Hello World!";
     }
 
+    @GET
+    @Path("shutdown")
+    public OutputModel shutdown() throws SocketException, InterruptedException {
+        OutputModel outputModel = new OutputModel();
+        dynamoServer.shutdownDynamoServer(outputModel);
+        return outputModel;
+    }
+
     @POST
     @Path("Bucket")
     @Consumes(MediaType.APPLICATION_JSON)

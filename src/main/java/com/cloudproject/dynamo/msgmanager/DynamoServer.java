@@ -577,14 +577,12 @@ public class DynamoServer implements NotificationListener {
                         boolean status;
                         String bucketName = null;
                         Pair<String, ObjectInputModel> obj = null;
-                        // TODO: Implement sending of acknowledgement message
                         switch (msg.type) {
                             case PING:
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
                                 break;
                             case NODE_LIST:
                                 DynamoServer.this.mergeMembershipLists(msg.srcNode, msg.payload);
-                                /* TODO: Implement NODE LIST RECV */
                                 break;
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
@@ -626,9 +624,8 @@ public class DynamoServer implements NotificationListener {
                         try {
                             DynamoServer.this.sendMessage(node, sendMsg);
                         } catch (IOException e) {
-                            /* TODO: Change address to node name after gossip implementation */
                             System.out.println("[WARN] Could not send " + sendMsg.type.name() +
-                                    " to " + node.getAddress());
+                                    " to " + node.name + " (" + node.getAddress() + ")");
                             e.printStackTrace();
                         }
                     }
@@ -711,7 +708,6 @@ public class DynamoServer implements NotificationListener {
                         boolean status;
                         String bucketName = null;
                         Pair<String, ObjectInputModel> obj = null;
-                        // TODO: Implement sending of acknowledgement message
                         switch (msg.type) {
                             case PING:
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
@@ -853,4 +849,19 @@ public class DynamoServer implements NotificationListener {
             }
         }
     }
+
+    public void shutdownDynamoServer(OutputModel outputModel) {
+        System.out.println("Forcing shutdown...");
+        System.out.println("Goodbye my friends...");
+        this.executorService.shutdownNow();
+        if (!DynamoServer.this.server.isClosed()) {
+            DynamoServer.this.server.close();
+        }
+        if (!DynamoServer.this.ioServer.isClosed()) {
+            DynamoServer.this.ioServer.close();
+        }
+        outputModel.setResponse("Server successfully shutdown");
+        outputModel.setStatus(true);
+    }
+
 }
