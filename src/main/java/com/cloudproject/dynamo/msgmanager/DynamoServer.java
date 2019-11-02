@@ -796,7 +796,7 @@ public class DynamoServer implements NotificationListener {
             // TODO: change quorum to actual quorum-based implementation
             int quorum = nodeList.size();
             int receives = 0;
-
+            System.out.println(">> ACK: quorum init: " + quorum + " receives init : " + receives);
             while (keepRunning.get()) {
                 /* Logic for receiving */
                 System.out.println("AckGhot");
@@ -812,6 +812,7 @@ public class DynamoServer implements NotificationListener {
                     if (readObject instanceof DynamoMessage) {
                         // TODO: Update method to manage successful receives vs. no. of receives
                         receives++;
+                        System.out.println(">> ACK: quorum: " + quorum + " receives: " + receives);
                         DynamoMessage msg = (DynamoMessage) readObject;
                         AckPayload payload = (AckPayload) msg.payload;
                         if (receives > 0) {
@@ -822,14 +823,17 @@ public class DynamoServer implements NotificationListener {
                         }
                         /* TODO: track separate receives by txnID */
                         if (receives >= quorum) {
+                            System.out.println(">> ACK: Quorum achieved! Success!");
                             switch (payload.getRequestType()) {
                                 case BUCKET_CREATE:
                                     outputModel.setResponse("Bucket " + payload.getIdentifier()
                                             + ((outputModel.isStatus()) ? " created successfully" : "creation failed"));
+                                    System.out.println(">> ACK: Quorum achieved: Setting BUCKET_CREATE response");
                                     break;
                                 case BUCKET_DELETE:
                                     outputModel.setResponse("Bucket " + payload.getIdentifier()
                                             + ((outputModel.isStatus()) ? " deleted successfully" : "deletion failed"));
+                                    System.out.println(">> ACK: Quorum achieved: Setting BUCKET_DELETE response");
                                     break;
                                 default:
                                     System.out.println("Unrecognized packet type!");
