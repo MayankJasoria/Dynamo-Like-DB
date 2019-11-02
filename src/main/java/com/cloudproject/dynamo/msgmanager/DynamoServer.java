@@ -716,16 +716,21 @@ public class DynamoServer implements NotificationListener {
                                 bucketName = (String) msg.payload;
                                 status = createFolder(bucketName);
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " created: " + status);
+                                /* TODO: Change txnID when implementing parallel IO */
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, new Pair<>(bucketName, status)));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.BUCKET_CREATE, bucketName, 0, status)));
                                 break;
                             case BUCKET_DELETE:
                                 bucketName = (String) msg.payload;
                                 status = deleteFolder(bucketName);
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " deleted: " + status);
+                                /* TODO: Change txnID when implementing parallel IO */
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.BUCKET_DELETE, bucketName, 0, status)));
                                 break;
+                            /* TODO: replace Pair<> with AckPayload */
                             case OBJECT_CREATE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
                                 status = createFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
@@ -808,20 +813,22 @@ public class DynamoServer implements NotificationListener {
                         // TODO: Update method to manage successful receives vs. no. of receives
                         receives++;
                         DynamoMessage msg = (DynamoMessage) readObject;
+                        AckPayload payload = (AckPayload) msg.payload;
                         if (receives > 0) {
                             outputModel.setStatus(outputModel.isStatus() &
-                                    ((Pair<String, Boolean>) msg.payload).getValue());
+                                    (payload.isStatus()));
                         } else {
-                            outputModel.setStatus(((Pair<String, Boolean>) msg.payload).getValue());
+                            outputModel.setStatus(payload.isStatus());
                         }
+                        /* TODO: track separate receives by txnID */
                         if (receives >= quorum) {
-                            switch (msg.type) {
+                            switch (payload.getRequestType()) {
                                 case BUCKET_CREATE:
-                                    outputModel.setResponse("Bucket " + ((Pair<String, Boolean>) msg.payload).getKey()
+                                    outputModel.setResponse("Bucket " + payload.getIdentifier()
                                             + ((outputModel.isStatus()) ? " created successfully" : "creation failed"));
                                     break;
                                 case BUCKET_DELETE:
-                                    outputModel.setResponse("Bucket " + ((Pair<String, Boolean>) msg.payload).getKey()
+                                    outputModel.setResponse("Bucket " + payload.getIdentifier()
                                             + ((outputModel.isStatus()) ? " deleted successfully" : "deletion failed"));
                                     break;
                                 default:
