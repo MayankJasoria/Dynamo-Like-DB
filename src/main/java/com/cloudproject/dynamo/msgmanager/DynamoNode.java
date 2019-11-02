@@ -9,12 +9,14 @@ public class DynamoNode implements Serializable, Cloneable, Node {
     private String address;
     private int heartbeat;
     private transient TimeoutTimer timeoutTimer;
+    private boolean apiNode;
 
-    public DynamoNode(String name, String address, DynamoServer server, int heartbeat, int ttl) {
+    public DynamoNode(String name, String address, DynamoServer server, int heartbeat, int ttl, boolean apiNode) {
         this.name = name;
         this.address = address;
         this.heartbeat = heartbeat;
         this.timeoutTimer = new TimeoutTimer(ttl, server, this);
+        this.apiNode = apiNode;
     }
 
     public String getAddress() {
@@ -42,7 +44,11 @@ public class DynamoNode implements Serializable, Cloneable, Node {
         return "DynamoNode <address=" + address + ", heartbeat=" + heartbeat + ">";
     }
 
-//    @Override
+    public boolean isApiNode() {
+        return apiNode;
+    }
+
+    //    @Override
 //    protected Object clone() {
 //        return new DynamoNode(name, address, heartbeat, );
 //    }

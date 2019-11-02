@@ -33,7 +33,6 @@ public class DynamoServer implements NotificationListener {
     private ExecutorService executorService;
     private DatagramSocket server;
     private DatagramSocket ioServer;
-    private String address;
     private DynamoNode node;
     private Random random;
     private int gossipInt;
@@ -45,7 +44,7 @@ public class DynamoServer implements NotificationListener {
     private int ioPort;
 
     private DynamoServer(String name, String address, int gossipInt, int ttl, int vNodeCount,
-                         @Nullable ArrayList<String> addr_list, int backups) throws SocketException {
+                         @Nullable ArrayList<String> addr_list, int backups, boolean apiNode) throws SocketException {
 
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
@@ -59,7 +58,6 @@ public class DynamoServer implements NotificationListener {
             }
         }));
 
-        this.address = address;
         this.ackPort = 9720;
         this.ioPort = 9700;
         this.nodeList = new ArrayList<>();
@@ -69,14 +67,14 @@ public class DynamoServer implements NotificationListener {
         this.ttl = ttl;
         if (addr_list != null) {
             for (String addr : addr_list) {
-                this.nodeList.add(new DynamoNode(null, addr, this, 0, ttl));
+                this.nodeList.add(new DynamoNode(null, addr, this, 0, ttl, false));
             }
         }
 
-        this.node = new DynamoNode(name, address, this,0, ttl);
+        this.node = new DynamoNode(name, address, this, 0, ttl, apiNode);
         int port = Integer.parseInt(address.split(":")[1]);
 
-        this.backups = (backups > 0) ? backups : 2;
+        this.backups = (backups > 0) ? backups : 1;
         this.vNodeCount = vNodeCount;
 
         /* init Random */
@@ -108,7 +106,7 @@ public class DynamoServer implements NotificationListener {
         this.printNodeList();
     }
 
-    private void start() throws InterruptedException {
+    private void start() {
 
         for (DynamoNode localNode : this.nodeList) {
             if (localNode != this.node) {
@@ -233,14 +231,17 @@ public class DynamoServer implements NotificationListener {
                                 /* The remoteNode previously was there in the local list
                                  * but timed out. So revive it!!
                                  * Updated heartbeat to the one received latest, and start timer*/
-                                DynamoNode localDeadNode = DynamoServer.this.deadList.get(DynamoServer.this.deadList.indexOf(remoteNode));
+                                DynamoNode localDeadNode =
+                                        DynamoServer.this.deadList.get(DynamoServer.this.deadList.indexOf(remoteNode));
                                 if (remoteNode.getHeartbeat() > localDeadNode.getHeartbeat()) {
                                     DynamoServer.this.deadList.remove(localDeadNode);
                                     DynamoNode newNode =
-                                            new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
+                                            new DynamoNode(remoteNode.name, remoteNode.getAddress(),
+                                                    this, remoteNode.getHeartbeat(),
+                                                    this.ttl, remoteNode.isApiNode());
                                     DynamoServer.this.nodeList.add(newNode);
 
-                                    if (hashingManager != null) {
+                                    if (hashingManager != null && !newNode.isApiNode()) {
                                         hashingManager.addNode(newNode, vNodeCount);
                                     }
 
@@ -253,10 +254,11 @@ public class DynamoServer implements NotificationListener {
                                 /* Probably a new member, add it to the list, use remote heartbeat,
                                  * start timer */
                                 DynamoNode newNode =
-                                        new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
+                                        new DynamoNode(remoteNode.name, remoteNode.getAddress(),
+                                                this, remoteNode.getHeartbeat(), this.ttl, remoteNode.isApiNode());
                                 DynamoServer.this.nodeList.add(newNode);
 
-                                if (hashingManager != null) {
+                                if (hashingManager != null && !newNode.isApiNode()) {
                                     hashingManager.addNode(newNode, vNodeCount);
                                 }
 
@@ -282,11 +284,11 @@ public class DynamoServer implements NotificationListener {
 //        return newList;
 //    }
 
-    public static DynamoServer startServer(String... args) throws SocketException, InterruptedException {
+    public static DynamoServer startServer(String... args) throws SocketException {
         if (selfServer == null) {
             if (args == null) {
                 System.out.println("[ERROR] Arguments required");
-            } else if (args.length < 5) {
+            } else if (args.length < 6) {
                 System.out.println("[ERROR] Expected at least 5 arguments, received " + args.length);
             } else {
                 String[] hashParams = args[4].split(":");
@@ -296,15 +298,19 @@ public class DynamoServer implements NotificationListener {
                 if (hashParams.length == 2) {
                     backups = Integer.parseInt(hashParams[1]);
                 }
-                if (args.length == 5) {
+                if (args.length == 6) {
                     selfServer =
-                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, null, backups);
+                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]),
+                                    Integer.parseInt(args[3]), vNodeCount, null,
+                                    backups, Boolean.parseBoolean(args[5]));
                     selfServer.start();
-                } else if (args.length == 6) {
+                } else if (args.length == 7) {
                     ArrayList<String> addr_list =
-                            new ArrayList<>(Arrays.asList(args[5].split(",")));
+                            new ArrayList<>(Arrays.asList(args[6].split(",")));
                     selfServer =
-                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, addr_list, backups);
+                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]),
+                                    Integer.parseInt(args[3]), vNodeCount, addr_list,
+                                    backups, Boolean.parseBoolean(args[5]));
                     selfServer.start();
                 } else {
                     System.out.println("[ERROR] Expected 5 or 6 arguments, received " + args.length);
@@ -663,7 +669,7 @@ public class DynamoServer implements NotificationListener {
     }
 
     /**
-     * Method to initialize an inctance of {@link HashingManager} for first time use
+     * Method to initialize an instance of {@link HashingManager} for first time use
      *
      * @param vNodeCount   the number of replicates of a node to be maintained in the hash ring
      * @param hashFunction an instance of the hash function to be used
