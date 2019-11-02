@@ -406,7 +406,7 @@ public class DynamoServer implements NotificationListener {
             }
         } catch (SocketException e) {
             outputModel.setStatus(false);
-            e.printStackTrace();
+            outputModel.setResponse(e.getMessage());
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -808,37 +808,34 @@ public class DynamoServer implements NotificationListener {
                         // TODO: Update method to manage successful receives vs. no. of receives
                         receives++;
                         DynamoMessage msg = (DynamoMessage) readObject;
-                        switch (msg.type) {
-                            case BUCKET_CREATE:
-                                if (receives > 0) {
-                                    outputModel.setStatus(outputModel.isStatus() &
-                                            ((Pair<String, Boolean>) msg.payload).getValue());
-                                } else {
-                                    outputModel.setStatus((Boolean) msg.payload);
-                                }
-                                if (receives == quorum) {
-                                    outputModel.setResponse("Bucket " + ((Pair<String, Boolean>) msg.payload).getKey()
-                                            + ((outputModel.isStatus()) ? " created successfully" : "creation failed"));
-                                }
-                                break;
-                            case BUCKET_DELETE:
-                                if (receives > 0) {
-                                    outputModel.setStatus(outputModel.isStatus() & (Boolean) msg.payload);
-                                } else {
-                                    outputModel.setStatus((Boolean) msg.payload);
-                                }
-                                break;
-                            default:
-                                System.out.println("Unrecognized packet type!");
+                        if (receives > 0) {
+                            outputModel.setStatus(outputModel.isStatus() &
+                                    ((Pair<String, Boolean>) msg.payload).getValue());
+                        } else {
+                            outputModel.setStatus(((Pair<String, Boolean>) msg.payload).getValue());
                         }
                         if (receives >= quorum) {
+                            switch (msg.type) {
+                                case BUCKET_CREATE:
+                                    outputModel.setResponse("Bucket " + ((Pair<String, Boolean>) msg.payload).getKey()
+                                            + ((outputModel.isStatus()) ? " created successfully" : "creation failed"));
+                                    break;
+                                case BUCKET_DELETE:
+                                    outputModel.setResponse("Bucket " + ((Pair<String, Boolean>) msg.payload).getKey()
+                                            + ((outputModel.isStatus()) ? " deleted successfully" : "deletion failed"));
+                                    break;
+                                default:
+                                    System.out.println("Unrecognized packet type!");
+                            }
                             keepRunning.set(false);
                         }
                     } else {
                         System.out.println("Malformed packet!");
                     }
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    outputModel.setResponse(e.getMessage());
+                    outputModel.setStatus(false);
+                    //e.printStackTrace();
                     keepRunning.set(false);
                 } catch (ClassNotFoundException e) {
                     e.printStackTrace();
