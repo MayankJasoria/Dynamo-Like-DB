@@ -104,7 +104,7 @@ public class Home {
 
     private void startDynamoServer() throws SocketException, InterruptedException {
         if (dynamoServer == null) {
-            dynamoServer = DynamoServer.startServer("REST-Host", "172.17.73.158:9350", "2000", "20000", "5", "172.17.23.50:9350");
+            dynamoServer = DynamoServer.startServer("REST-Host", "172.17.73.158:9350", "2000", "20000", "5", "172.17.23.60:9350");
         }
     }
 }
