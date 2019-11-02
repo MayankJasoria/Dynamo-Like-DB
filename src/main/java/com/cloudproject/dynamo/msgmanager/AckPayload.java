@@ -1,6 +1,8 @@
 package com.cloudproject.dynamo.msgmanager;
 
-public class AckPayload {
+import java.io.Serializable;
+
+public class AckPayload implements Serializable {
     private MessageTypes requestType;
     private String identifier;
     private long txnID;
