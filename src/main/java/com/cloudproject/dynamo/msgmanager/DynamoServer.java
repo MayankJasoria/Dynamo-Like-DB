@@ -20,9 +20,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DynamoServer implements NotificationListener {
@@ -365,15 +363,15 @@ public class DynamoServer implements NotificationListener {
         /* Spawn ack thread to collect acks, and write to output model */
         try {
             AckReceiver ackThread = new AckReceiver(outputModel);
-            this.executorService.execute(ackThread);
+            Future future = this.executorService.submit(ackThread);
 //            while (ackThread.isAlive()) {
 //                TimeUnit.MILLISECONDS.sleep(1);
 //            }
-            ackThread.join();
+            future.get();
         } catch (SocketException e) {
             outputModel.setStatus(false);
             outputModel.setResponse(e.getMessage());
-        } catch (InterruptedException e) {
+        } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
         }
 
