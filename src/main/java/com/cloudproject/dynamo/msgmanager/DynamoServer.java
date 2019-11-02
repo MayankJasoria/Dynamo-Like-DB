@@ -398,15 +398,14 @@ public class DynamoServer implements NotificationListener {
         sendRequests(MessageTypes.BUCKET_DELETE, name);
 
         try {
-            AckReceiver ackReceiver = new AckReceiver(outputModel);
-            this.executorService.execute(ackReceiver);
-            while (ackReceiver.isAlive()) {
-                TimeUnit.SECONDS.sleep(1);
-            }
+            AckReceiver ackThread = new AckReceiver(outputModel);
+            Future future = this.executorService.submit(ackThread);
+            future.get();
+
         } catch (SocketException e) {
             outputModel.setStatus(false);
             outputModel.setResponse(e.getMessage());
-        } catch (InterruptedException e) {
+        } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
         }
 
@@ -787,6 +786,7 @@ public class DynamoServer implements NotificationListener {
             keepRunning = new AtomicBoolean(true);
             ackServer = new DatagramSocket(DynamoServer.this.ackPort);
             this.outputModel = outputModel;
+            this.outputModel.setStatus(true);
         }
 
         @SuppressWarnings("unchecked")
@@ -814,24 +814,19 @@ public class DynamoServer implements NotificationListener {
                         System.out.println(">> ACK: quorum: " + quorum + " receives: " + receives);
                         DynamoMessage msg = (DynamoMessage) readObject;
                         AckPayload payload = (AckPayload) msg.payload;
-                        if (receives > 0) {
-                            outputModel.setStatus(outputModel.isStatus() &
-                                    (payload.isStatus()));
-                        } else {
-                            outputModel.setStatus(payload.isStatus());
-                        }
+                        outputModel.setStatus(outputModel.isStatus() & (payload.isStatus()));
                         /* TODO: track separate receives by txnID */
                         if (receives >= quorum) {
                             System.out.println(">> ACK: Quorum achieved! Success!");
                             switch (payload.getRequestType()) {
                                 case BUCKET_CREATE:
                                     outputModel.setResponse("Bucket " + payload.getIdentifier()
-                                            + ((outputModel.isStatus()) ? " created successfully" : "creation failed"));
+                                            + ((outputModel.isStatus()) ? " created successfully" : " creation failed"));
                                     System.out.println(">> ACK: Quorum achieved: Setting BUCKET_CREATE response");
                                     break;
                                 case BUCKET_DELETE:
                                     outputModel.setResponse("Bucket " + payload.getIdentifier()
-                                            + ((outputModel.isStatus()) ? " deleted successfully" : "deletion failed"));
+                                            + ((outputModel.isStatus()) ? " deleted successfully" : " deletion failed"));
                                     System.out.println(">> ACK: Quorum achieved: Setting BUCKET_DELETE response");
                                     break;
                                 default:

@@ -50,7 +50,7 @@ public class Home {
     }
 
     @POST
-    @Path("Bucket")
+    @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public OutputModel createBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
@@ -63,7 +63,7 @@ public class Home {
     }
 
     @DELETE
-    @Path("Bucket")
+    @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public OutputModel deleteBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
