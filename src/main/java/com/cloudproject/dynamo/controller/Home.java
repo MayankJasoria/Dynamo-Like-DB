@@ -50,7 +50,7 @@ public class Home {
     }
 
     @POST
-    @Path("Bucket")
+    @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public OutputModel createBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
@@ -63,7 +63,7 @@ public class Home {
     }
 
     @DELETE
-    @Path("Bucket")
+    @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     public OutputModel deleteBucket(BucketInputModel inputModel) throws SocketException, InterruptedException {
@@ -104,7 +104,7 @@ public class Home {
 
     private void startDynamoServer() throws SocketException, InterruptedException {
         if (dynamoServer == null) {
-            dynamoServer = DynamoServer.startServer("REST-Host", "172.17.73.158:9350", "2000", "20000", "5", "172.17.23.50:9350");
+            dynamoServer = DynamoServer.startServer("REST-Host", "172.17.73.158:9350", "2000", "20000", "5", "172.17.23.60:9350");
         }
     }
 }
