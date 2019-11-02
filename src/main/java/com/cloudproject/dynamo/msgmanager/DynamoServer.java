@@ -3,8 +3,7 @@ package com.cloudproject.dynamo.msgmanager;
 import com.cloudproject.dynamo.consistenthash.CityHash;
 import com.cloudproject.dynamo.consistenthash.HashFunction;
 import com.cloudproject.dynamo.consistenthash.HashingManager;
-import com.cloudproject.dynamo.models.ObjectInputModel;
-import com.cloudproject.dynamo.models.OutputModel;
+import com.cloudproject.dynamo.models.*;
 import javafx.util.Pair;
 import org.apache.commons.io.FileUtils;
 import org.jetbrains.annotations.Nullable;
@@ -284,6 +283,13 @@ public class DynamoServer implements NotificationListener {
 //        return newList;
 //    }
 
+    /**
+     * Method to start the dynamo server
+     *
+     * @param args command line arguments related to the server
+     * @return instance of DynamoServer
+     * @throws SocketException
+     */
     public static DynamoServer startServer(String... args) throws SocketException {
         if (selfServer == null) {
             if (args == null) {
@@ -318,6 +324,25 @@ public class DynamoServer implements NotificationListener {
             }
         }
         return selfServer;
+    }
+
+    /**
+     * Method to shut down the server
+     *
+     * @param outputModel POJO which contains the response message
+     */
+    public void shutdownDynamoServer(OutputModel outputModel) {
+        System.out.println("Forcing shutdown...");
+        System.out.println("Goodbye my friends...");
+        this.executorService.shutdownNow();
+        if (!DynamoServer.this.server.isClosed()) {
+            DynamoServer.this.server.close();
+        }
+        if (!DynamoServer.this.ioServer.isClosed()) {
+            DynamoServer.this.ioServer.close();
+        }
+        outputModel.setResponse("Server successfully shutdown");
+        outputModel.setStatus(true);
     }
 
     /**
@@ -415,56 +440,6 @@ public class DynamoServer implements NotificationListener {
     private void forwardToRandNode(String bucketName, String objName, OutputModel outputModel) {
         /* TODO: Do some overload */
     }
-
-    private class ReceiveFromRandNode extends Thread {
-        private AtomicBoolean keepRunning;
-        private DatagramSocket randRecvServer;
-        private OutputModel outputModel;
-
-        ReceiveFromRandNode(OutputModel outputModel) throws SocketException {
-            keepRunning = new AtomicBoolean(true);
-            randRecvServer = new DatagramSocket(DynamoServer.this.ackPort);
-            this.outputModel = outputModel;
-        }
-
-        @SuppressWarnings("unchecked")
-        @Override
-        public void run() {
-            while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println(">> REST: randRecv: init");
-                /* init a buffer where the packet will be placed */
-                byte[] buf = new byte[1500];
-                DatagramPacket p = new DatagramPacket(buf, buf.length);
-                try {
-                    this.randRecvServer.receive(p);
-                    /* Parse this packet into an object */
-                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
-                    ObjectInputStream ois = new ObjectInputStream(bais);
-                    Object readObject = ois.readObject();
-                    if (readObject instanceof DynamoMessage) {
-                        // Receive from rand node and set output
-                        boolean status = (boolean) ((DynamoMessage) readObject).payload;
-                        outputModel.setStatus(status);
-                    } else {
-                        System.out.println("Malformed packet!");
-                    }
-                } catch (IOException e) {
-                    outputModel.setResponse(e.getMessage());
-                    outputModel.setStatus(false);
-                    //e.printStackTrace();
-                    keepRunning.set(false);
-                } catch (ClassNotFoundException e) {
-                    e.printStackTrace();
-                }
-            }
-            if (!randRecvServer.isClosed()) {
-                randRecvServer.close();
-            }
-        }
-    }
-
-
 
     /**
      * Method to create a folder in current node
@@ -643,7 +618,7 @@ public class DynamoServer implements NotificationListener {
     private class GossipReceiver implements Runnable {
         private AtomicBoolean keepRunning;
 
-        public GossipReceiver() {
+        GossipReceiver() {
             keepRunning = new AtomicBoolean(true);
         }
 
@@ -780,7 +755,7 @@ public class DynamoServer implements NotificationListener {
     private class ioReceiver implements Runnable {
         private AtomicBoolean keepRunning;
 
-        public ioReceiver() {
+        ioReceiver() {
             keepRunning = new AtomicBoolean(true);
         }
 
@@ -895,13 +870,12 @@ public class DynamoServer implements NotificationListener {
         private DatagramSocket ackServer;
         private AtomicBoolean status;
 
-        public AckReceiver(AtomicBoolean status) throws SocketException {
+        AckReceiver(AtomicBoolean status) throws SocketException {
             keepRunning = new AtomicBoolean(true);
             ackServer = new DatagramSocket(DynamoServer.this.ackPort);
             this.status = status;
         }
 
-        @SuppressWarnings("unchecked")
         @Override
         public void run() {
             // TODO: change quorum to actual quorum-based implementation
@@ -966,18 +940,58 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
-    public void shutdownDynamoServer(OutputModel outputModel) {
-        System.out.println("Forcing shutdown...");
-        System.out.println("Goodbye my friends...");
-        this.executorService.shutdownNow();
-        if (!DynamoServer.this.server.isClosed()) {
-            DynamoServer.this.server.close();
-        }
-        if (!DynamoServer.this.ioServer.isClosed()) {
-            DynamoServer.this.ioServer.close();
-        }
-        outputModel.setResponse("Server successfully shutdown");
-        outputModel.setStatus(true);
-    }
+    private class ReceiveFromRandNode extends Thread {
+        private AtomicBoolean keepRunning;
+        private DatagramSocket randRecvServer;
+        private OutputModel outputModel;
 
+        ReceiveFromRandNode(OutputModel outputModel) throws SocketException {
+            keepRunning = new AtomicBoolean(true);
+            randRecvServer = new DatagramSocket(DynamoServer.this.ackPort);
+            this.outputModel = outputModel;
+        }
+
+        @Override
+        public void run() {
+            while (keepRunning.get()) {
+                /* Logic for receiving */
+                System.out.println(">> REST: randRecv: init");
+                /* init a buffer where the packet will be placed */
+                byte[] buf = new byte[1500];
+                DatagramPacket p = new DatagramPacket(buf, buf.length);
+                try {
+                    this.randRecvServer.receive(p);
+                    /* Parse this packet into an object */
+                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                    ObjectInputStream ois = new ObjectInputStream(bais);
+                    Object readObject = ois.readObject();
+                    if (readObject instanceof DynamoMessage) {
+                        // Receive from rand node and set output
+                        boolean status = (boolean) ((DynamoMessage) readObject).payload;
+                        outputModel.setStatus(status);
+                    } else {
+                        System.out.println("Malformed packet!");
+                    }
+                } catch (IOException e) {
+                    outputModel.setResponse(e.getMessage());
+                    outputModel.setStatus(false);
+                    //e.printStackTrace();
+                    keepRunning.set(false);
+                } catch (ClassNotFoundException e) {
+                    e.printStackTrace();
+                }
+            }
+            if (!randRecvServer.isClosed()) {
+                randRecvServer.close();
+            }
+        }
+
+        @Override
+        public void interrupt() {
+            super.interrupt();
+            if (!this.randRecvServer.isClosed()) {
+                this.randRecvServer.close();
+            }
+        }
+    }
 }

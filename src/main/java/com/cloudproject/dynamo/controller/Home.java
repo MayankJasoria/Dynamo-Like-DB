@@ -1,10 +1,10 @@
 package com.cloudproject.dynamo.controller;
 
 import com.cloudproject.dynamo.models.BucketInputModel;
+import com.cloudproject.dynamo.models.MessageTypes;
 import com.cloudproject.dynamo.models.ObjectInputModel;
 import com.cloudproject.dynamo.models.OutputModel;
 import com.cloudproject.dynamo.msgmanager.DynamoServer;
-import com.cloudproject.dynamo.msgmanager.MessageTypes;
 
 import javax.ws.rs.*;
 import javax.ws.rs.core.MediaType;
@@ -20,7 +20,7 @@ public class Home {
      *
      * @param args array of String, may be used for debugging
      */
-    public static void main(String[] args) throws SocketException, InterruptedException {
+    public static void main(String[] args) throws SocketException {
         dynamoServer = DynamoServer.startServer(args);
     }
 
@@ -44,7 +44,7 @@ public class Home {
 
     @GET
     @Path("shutdown")
-    public OutputModel shutdown() throws SocketException, InterruptedException {
+    public OutputModel shutdown() {
         OutputModel outputModel = new OutputModel();
         dynamoServer.shutdownDynamoServer(outputModel);
         return outputModel;
@@ -103,7 +103,7 @@ public class Home {
         return null;
     }
 
-    private void startDynamoServer() throws SocketException, InterruptedException {
+    private void startDynamoServer() throws SocketException {
         if (dynamoServer == null) {
             dynamoServer = DynamoServer.startServer("REST-Host", "172.17.73.158:9350", "2000", "20000", "5", "true", "172.17.23.60:9350");
         }

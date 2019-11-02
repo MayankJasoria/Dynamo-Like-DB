@@ -1,4 +1,4 @@
-package com.cloudproject.dynamo.msgmanager;
+package com.cloudproject.dynamo.models;
 
 
 public enum MessageTypes {
