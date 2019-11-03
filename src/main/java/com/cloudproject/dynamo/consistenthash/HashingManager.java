@@ -41,7 +41,7 @@ public class HashingManager<T extends Node> {
     /**
      * Adds a new physical node to the hash ring, with specified number of replicas
      *
-     * @param pNode      the physiclal node to be added to the ring
+     * @param pNode      the physical node to be added to the ring
      * @param vNodeCount the number of replicas of the required node
      */
     public void addNode(T pNode, int vNodeCount) {

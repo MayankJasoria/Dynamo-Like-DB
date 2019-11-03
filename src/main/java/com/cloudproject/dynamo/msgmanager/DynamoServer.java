@@ -427,7 +427,9 @@ public class DynamoServer implements NotificationListener {
             Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
             sendRequestToRandNode(new ForwardPayload(messageType, bucketName, inputObject, 2));
             future.get(20, TimeUnit.SECONDS);
-
+            /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+             *  it is occupying a port and CPU time without any reason.
+             */
             // outputModel contains status, read status and set message
             switch (messageType) {
                 case OBJECT_CREATE:
@@ -481,6 +483,9 @@ public class DynamoServer implements NotificationListener {
 
             // wait for thread termination
             future.get(20, TimeUnit.SECONDS);
+            /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+             *  it is occupying a port and CPU time without any reason.
+             */
         } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
             success.set(false);
             e.printStackTrace();
@@ -520,6 +525,9 @@ public class DynamoServer implements NotificationListener {
 
             // wait for thread termination
             future.get(20, TimeUnit.SECONDS);
+            /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+             *  it is occupying a port and CPU time without any reason.
+             */
         } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
             success.set(false);
             e.printStackTrace();
@@ -572,6 +580,7 @@ public class DynamoServer implements NotificationListener {
         // send requests to all appropriate nodes and await response
         if (hashNodes.size() > 0) {
             try {
+                System.out.println("Sending request to " + hashNodes.size() + " other nodes");
                 AckReceiver ackThread = new AckReceiver(success, hashNodes.size());
                 Future future = this.executorService.submit(ackThread);
 
@@ -580,6 +589,9 @@ public class DynamoServer implements NotificationListener {
 
                 // wait for thread termination
                 future.get(20, TimeUnit.SECONDS);
+                /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+                 *  it is occupying a port and CPU time without any reason.
+                 */
             } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
                 success.set(false);
                 e.printStackTrace();
