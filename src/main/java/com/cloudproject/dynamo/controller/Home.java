@@ -94,7 +94,8 @@ public class Home {
     @Path("{bucketName}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName) throws SocketException {
+    public OutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName)
+            throws SocketException {
         OutputModel outputModel = new OutputModel();
         startDynamoServer();
 

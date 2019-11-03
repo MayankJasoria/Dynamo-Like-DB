@@ -653,6 +653,48 @@ public class DynamoServer implements NotificationListener {
         return success.get();
     }
 
+    private boolean updateRecord(String bucket, ObjectInputModel inputModel) {
+        if (hashingManager == null) {
+            initializeHashingManager(vNodeCount, new CityHash(), backups);
+        }
+
+        // get all the nodes to which this record should be written
+        ArrayList<DynamoNode> hashNodes = hashingManager.routeNodes(inputModel.getKey());
+
+        AtomicBoolean success = new AtomicBoolean(true);
+        if (hashNodes.contains(this.node)) {
+            // this node is one of the hash replicas, create object here
+            System.out.println("Node " + node.name + " is part of hash!");
+            success.set(updateFile(bucket, inputModel.getKey(), inputModel.getValue()));
+            hashNodes.remove(this.node);
+        }
+
+        // send requests to all appropriate nodes and await response
+        if (hashNodes.size() > 0) {
+            try {
+                System.out.println("Sending UPDATE request to " + hashNodes.size() + " other nodes");
+                for (DynamoNode node : hashNodes) {
+                    System.out.println(node.name + " " + node.getAddress());
+                }
+                AckReceiver ackThread = new AckReceiver(success, hashNodes.size());
+                Future future = this.executorService.submit(ackThread);
+
+                // send a request to each relevant hash-node to create the object
+                sendRequests(MessageTypes.OBJECT_UPDATE, new Pair<>(bucket, inputModel), hashNodes);
+
+                // wait for thread termination
+                future.get(20, TimeUnit.SECONDS);
+                /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+                 *  it is occupying a port and CPU time without any reason.
+                 */
+            } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+                success.set(false);
+                e.printStackTrace();
+            }
+        }
+        return success.get();
+    }
+
     /**
      * Method to read the contents of a record
      *
@@ -980,7 +1022,10 @@ public class DynamoServer implements NotificationListener {
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
                                         + ((ObjectInputModel) obj.getValue()).getKey() + " updated: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.OBJECT_UPDATE,
+                                                obj.getKey() + "/" + ((ObjectInputModel) obj.getValue()).getKey(),
+                                                2, status)));
                                 break;
                             case OBJECT_DELETE:
                                 obj = (Pair<String, String>) msg.payload;
@@ -1005,6 +1050,11 @@ public class DynamoServer implements NotificationListener {
                                     case OBJECT_CREATE:
                                         System.out.println("~DEBUG~ addRecord() being called");
                                         status = addRecord(payload.getBucketName(),
+                                                (ObjectInputModel) payload.getInputModel());
+                                        break;
+                                    case OBJECT_UPDATE:
+                                        System.out.println("~DEBUG~ updateRecord() being called");
+                                        status = updateRecord(payload.getBucketName(),
                                                 (ObjectInputModel) payload.getInputModel());
                                         break;
                                     case OBJECT_DELETE:
