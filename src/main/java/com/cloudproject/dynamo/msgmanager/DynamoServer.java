@@ -582,7 +582,7 @@ public class DynamoServer implements NotificationListener {
         // send requests to all appropriate nodes and await response
         if (hashNodes.size() > 0) {
             try {
-                System.out.println("Sending request to " + hashNodes.size() + " other nodes");
+                System.out.println("Sending CREATE request to " + hashNodes.size() + " other nodes");
                 AckReceiver ackThread = new AckReceiver(success, hashNodes.size());
                 Future future = this.executorService.submit(ackThread);
 
@@ -630,7 +630,7 @@ public class DynamoServer implements NotificationListener {
         // key present in other nodes
         if (hashNodes.size() > 0) {
             try {
-                System.out.println("Sending request to " + hashNodes.size() + " other nodes");
+                System.out.println("Sending DELETE request to " + hashNodes.size() + " other nodes");
                 AckReceiver ackReceiver = new AckReceiver(success, hashNodes.size());
 
                 // initialize Acknowledgement Receiver thread to listen for acknowledgements
@@ -991,10 +991,12 @@ public class DynamoServer implements NotificationListener {
                                         status = deleteBucket(payload.getBucketName());
                                         break;
                                     case OBJECT_CREATE:
+                                        System.out.println("~DEBUG~ addRecord() being called");
                                         status = addRecord(payload.getBucketName(),
                                                 (ObjectInputModel) payload.getInputModel());
                                         break;
                                     case OBJECT_DELETE:
+                                        System.out.println("~DEBUG~ deleteRecord() being called");
                                         status = deleteRecord(payload.getBucketName(),
                                                 String.valueOf(payload.getInputModel()));
                                         break;
