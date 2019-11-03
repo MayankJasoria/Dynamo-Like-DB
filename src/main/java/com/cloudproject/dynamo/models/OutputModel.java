@@ -10,7 +10,7 @@ public class OutputModel {
 
     private boolean status;
 
-    private int[] vectorClocks;
+    private String vectorClocks;
 
     private String node;
 
@@ -22,11 +22,11 @@ public class OutputModel {
         this.status = status;
     }
 
-    public int[] getVectorClocks() {
+    public String getVectorClocks() {
         return vectorClocks;
     }
 
-    public void setVectorClocks(int[] vectorClocks) {
+    public void setVectorClocks(String vectorClocks) {
         this.vectorClocks = vectorClocks;
     }
 
