@@ -177,12 +177,26 @@ public class DynamoServer implements NotificationListener {
         socket.close();
     }
 
+    /**
+     * Method to get a random node except API gateway
+     *
+     * @return instance of a random node from nodeList
+     */
     private DynamoNode getRandomNode() {
+
+        ArrayList<DynamoNode> randList = new ArrayList<>(nodeList);
+        for (DynamoNode node : randList) {
+            if (node.isApiNode()) {
+                randList.remove(node);
+                break;
+            }
+        }
+
         DynamoNode node = null;
 
-        if (this.nodeList.size() > 0) {
-            int rand = random.nextInt(this.nodeList.size());
-            node = this.nodeList.get(rand);
+        if (randList.size() > 0) {
+            int rand = random.nextInt(randList.size());
+            node = randList.get(rand);
         }
 
         return node;
@@ -885,13 +899,12 @@ public class DynamoServer implements NotificationListener {
     }
 
     private class MessageSender implements Runnable {
-        DynamoMessage sendMsg;
-        ArrayList<DynamoNode> sendList;
+        private DynamoMessage sendMsg;
+        private ArrayList<DynamoNode> sendList;
 
         MessageSender(MessageTypes type, Object payload) {
-            sendMsg = new DynamoMessage(DynamoServer.this.node, type, payload);
-            sendList = new ArrayList<>();
-            sendList.addAll(DynamoServer.this.nodeList);
+            this.sendMsg = new DynamoMessage(DynamoServer.this.node, type, payload);
+            this.sendList = new ArrayList<>(DynamoServer.this.nodeList);
         }
 
         MessageSender(MessageTypes type, Object payload, ArrayList<DynamoNode> sendList) {
@@ -901,25 +914,25 @@ public class DynamoServer implements NotificationListener {
 
         public void run() {
             do {
-                if (sendMsg.type == MessageTypes.PING) {
+                if (this.sendMsg.type == MessageTypes.PING) {
                     try {
                         TimeUnit.MILLISECONDS.sleep(2000);
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
                 }
-                for (DynamoNode node : sendList) {
+                for (DynamoNode node : this.sendList) {
                     try {
                         if (!node.isApiNode()) {
-                            DynamoServer.this.sendMessage(node, sendMsg);
+                            DynamoServer.this.sendMessage(node, this.sendMsg);
                         }
                     } catch (IOException e) {
-                        System.out.println("[WARN] Could not send " + sendMsg.type.name() +
+                        System.out.println("[WARN] Could not send " + this.sendMsg.type.name() +
                                 " to " + node.name + " (" + node.getAddress() + ")");
                         e.printStackTrace();
                     }
                 }
-            } while (sendMsg.type == MessageTypes.PING);
+            } while (this.sendMsg.type == MessageTypes.PING);
         }
     }
 
@@ -927,7 +940,7 @@ public class DynamoServer implements NotificationListener {
         private AtomicBoolean keepRunning;
 
         Gossiper() {
-            keepRunning = new AtomicBoolean(true);
+            this.keepRunning = new AtomicBoolean(true);
         }
 
         public void run() {
