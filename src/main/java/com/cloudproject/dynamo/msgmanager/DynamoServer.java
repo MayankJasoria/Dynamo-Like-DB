@@ -446,8 +446,7 @@ public class DynamoServer implements NotificationListener {
                             (outputModel.isStatus() ? " updated successfully" : " updation failed"));
                     break;
                 case OBJECT_DELETE:
-                    outputModel.setResponse("Record " +
-                            ((ObjectInputModel) inputObject).getKey() + " : " + ((ObjectInputModel) inputObject).getValue() +
+                    outputModel.setResponse("Record " + inputObject +
                             (outputModel.isStatus() ? " removal successfully" : " removed failed"));
                     break;
             }
@@ -597,6 +596,53 @@ public class DynamoServer implements NotificationListener {
                 e.printStackTrace();
             }
         }
+        return success.get();
+    }
+
+    /**
+     * Method to delete a record from the database
+     *
+     * @param bucketName The name of the bucket which contains the record
+     * @param key        the key of the object ot be deleted
+     * @return true if deletion was successful, false otherwise
+     */
+    private boolean deleteRecord(String bucketName, String key) {
+        if (hashingManager == null) {
+            initializeHashingManager(vNodeCount, new CityHash(), backups);
+        }
+
+        // get all nodes in which this value should exist
+        ArrayList<DynamoNode> hashNodes = hashingManager.routeNodes(key);
+
+        // track success of operation
+        AtomicBoolean success = new AtomicBoolean(true);
+
+        // key present in coordinator
+        if (hashNodes.contains(this.node)) {
+            System.out.println("Key to be deleted present in coordinator " + this.node.name);
+            success.set(deleteFile(bucketName, key));
+            hashNodes.remove(this.node);
+        }
+
+        // key present in other nodes
+        if (hashNodes.size() > 0) {
+            try {
+                AckReceiver ackReceiver = new AckReceiver(success, hashNodes.size());
+
+                // initialize Acknowledgement Receiver thread to listen for acknowledgements
+                Future future = this.executorService.submit(ackReceiver);
+
+                // send a request to each relevant hash-node to create the object
+                sendRequests(MessageTypes.OBJECT_DELETE, new Pair<>(bucketName, key), hashNodes);
+
+                // wait for acknowledgement thread termination
+                future.get(20, TimeUnit.SECONDS);
+            } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+                success.set(false);
+                e.printStackTrace();
+            }
+        }
+
         return success.get();
     }
 
@@ -865,7 +911,7 @@ public class DynamoServer implements NotificationListener {
                         DynamoMessage msg = (DynamoMessage) readObject;
                         boolean status;
                         String bucketName = null;
-                        Pair<String, ObjectInputModel> obj = null;
+                        Pair<String, ?> obj = null;
                         switch (msg.type) {
                             case PING:
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
@@ -891,37 +937,44 @@ public class DynamoServer implements NotificationListener {
                             /* TODO: replace Pair<> with AckPayload */
                             case OBJECT_CREATE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                status = createFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
+                                status = createFile(obj.getKey(), ((ObjectInputModel) obj.getValue()).getKey(),
+                                        ((ObjectInputModel) obj.getValue()).getValue());
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " created: " + status);
+                                        + ((ObjectInputModel) obj.getValue()).getKey() + " created: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
                                         MessageTypes.ACKNOWLEDGEMENT,
-                                        new AckPayload(MessageTypes.OBJECT_CREATE, obj.getValue().getKey(),
+                                        new AckPayload(MessageTypes.OBJECT_CREATE,
+                                                ((ObjectInputModel) obj.getValue()).getKey(),
                                                 2, status)));
                                 break;
                             case OBJECT_READ:
-                                obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                String contents = readFile(obj.getKey(), obj.getValue().getKey());
+                                obj = (Pair<String, String>) msg.payload;
+                                String contents = readFile(obj.getKey(), String.valueOf(obj.getValue()));
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " read: " + contents);
+                                        + obj.getValue() + " read: " + contents);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
                                         MessageTypes.ACKNOWLEDGEMENT, contents));
                                 break;
                             case OBJECT_UPDATE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                status = updateFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
+                                status = updateFile(obj.getKey(),
+                                        ((ObjectInputModel) obj.getValue()).getKey(),
+                                        ((ObjectInputModel) obj.getValue()).getValue());
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " updated: " + status);
+                                        + ((ObjectInputModel) obj.getValue()).getKey() + " updated: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
                                         MessageTypes.ACKNOWLEDGEMENT, status));
                                 break;
                             case OBJECT_DELETE:
-                                obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                status = deleteFile(obj.getKey(), obj.getValue().getKey());
+                                obj = (Pair<String, String>) msg.payload;
+                                status = deleteFile(obj.getKey(), String.valueOf(obj.getValue()));
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " deleted: " + status);
+                                        + obj.getValue() + " deleted: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.OBJECT_DELETE,
+                                                obj.getKey() + "/" + obj.getValue(),
+                                                2, status)));
                                 break;
                             case FORWARD:
                                 ForwardPayload payload = (ForwardPayload) msg.payload;
@@ -935,6 +988,10 @@ public class DynamoServer implements NotificationListener {
                                     case OBJECT_CREATE:
                                         status = addRecord(payload.getBucketName(),
                                                 (ObjectInputModel) payload.getInputModel());
+                                        break;
+                                    case OBJECT_DELETE:
+                                        status = deleteRecord(payload.getBucketName(),
+                                                String.valueOf(payload.getInputModel()));
                                         break;
                                     default:
                                         System.out.println(">> Unknown request forwarded!");
@@ -1007,22 +1064,28 @@ public class DynamoServer implements NotificationListener {
                             System.out.println(">> ACK: Quorum achieved! Success!");
                             switch (payload.getRequestType()) {
                                 case BUCKET_CREATE:
-                                    System.out.println(">> ACK: Quorum achieved: Setting BUCKET_CREATE response");
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting BUCKET_CREATE response");
                                     break;
                                 case BUCKET_DELETE:
-                                    System.out.println(">> ACK: Quorum achieved: Setting BUCKET_DELETE response");
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting BUCKET_DELETE response");
                                     break;
                                 case OBJECT_CREATE:
-                                    System.out.println(">> ACK: Quorum achieved: Setting OBJECT_CREATE response");
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_CREATE response");
                                     break;
                                 case OBJECT_READ:
-                                    System.out.println(">> ACK: Quorum achieved: Setting OBJECT_READ response");
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_READ response");
                                     break;
                                 case OBJECT_UPDATE:
-                                    System.out.println(">> ACK: Quorum achieved: Setting OBJECT_UPDATE response");
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_UPDATE response");
                                     break;
                                 case OBJECT_DELETE:
-                                    System.out.println(">> ACK: Quorum achieved: Setting OBJECT_DELETE response");
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_DELETE response");
                                     break;
                                 default:
                                     System.out.println("Unrecognized packet type!");

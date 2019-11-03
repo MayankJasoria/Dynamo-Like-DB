@@ -103,14 +103,14 @@ public class Home {
     }
 
     @DELETE
-    @Path("{bucketName}")
-    @Consumes(MediaType.APPLICATION_JSON)
+    @Path("{bucketName}/{objectKey}")
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel deleteObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName) throws SocketException {
+    public OutputModel deleteObject(@PathParam("bucketName") String bucketName,
+                                    @PathParam("objectKey") String key) throws SocketException {
         OutputModel outputModel = new OutputModel();
         startDynamoServer();
 
-        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_DELETE, bucketName, inputModel, outputModel);
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_DELETE, bucketName, key, outputModel);
 
         return outputModel;
     }
