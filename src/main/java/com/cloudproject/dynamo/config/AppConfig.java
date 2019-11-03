@@ -14,9 +14,23 @@ import javax.ws.rs.ApplicationPath;
  */
 @ApplicationPath("/db")
 public class AppConfig extends ResourceConfig {
+
+    private static Genson genson;
+
     public AppConfig() {
-        Genson genson = new GensonBuilder().setSkipNull(true).create();
+        genson = new GensonBuilder()
+                .setSkipNull(true)
+                .useIndentation(true)
+                .useConstructorWithArguments(true)
+                .create();
         register(new GensonJaxRSFeature().use(genson));
         packages("com.cloudproject.dynamo.controller");
+    }
+
+    public static Genson getParser() {
+        if (genson == null) {
+            genson = new GensonBuilder().setSkipNull(true).create();
+        }
+        return genson;
     }
 }
