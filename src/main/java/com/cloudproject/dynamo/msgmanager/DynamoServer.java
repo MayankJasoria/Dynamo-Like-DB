@@ -583,6 +583,9 @@ public class DynamoServer implements NotificationListener {
         if (hashNodes.size() > 0) {
             try {
                 System.out.println("Sending CREATE request to " + hashNodes.size() + " other nodes");
+                for (DynamoNode node : hashNodes) {
+                    System.out.println(node.name + " " + node.getAddress());
+                }
                 AckReceiver ackThread = new AckReceiver(success, hashNodes.size());
                 Future future = this.executorService.submit(ackThread);
 
@@ -880,10 +883,19 @@ public class DynamoServer implements NotificationListener {
     private void initializeHashingManager(int vNodeCount, HashFunction hashFunction, int backups) {
         if (hashingManager == null) {
             // initialize hashingManager only if it is null
+            ArrayList<DynamoNode> hashNodes = new ArrayList<>();
+            for (DynamoNode node : nodeList) {
+                if (!node.isApiNode()) {
+                    hashNodes.add(node);
+                }
+            }
+
+            hashNodes.add(this.node);
+
             if (backups != 2) {
-                hashingManager = new HashingManager<>(nodeList, vNodeCount, hashFunction, backups);
+                hashingManager = new HashingManager<>(hashNodes, vNodeCount, hashFunction, backups);
             } else {
-                hashingManager = new HashingManager<>(nodeList, vNodeCount, hashFunction);
+                hashingManager = new HashingManager<>(hashNodes, vNodeCount, hashFunction);
             }
         }
     }
@@ -1035,6 +1047,7 @@ public class DynamoServer implements NotificationListener {
             keepRunning = new AtomicBoolean(true);
             ackServer = new DatagramSocket(DynamoServer.this.ackPort);
             this.status = status;
+            quorum = DynamoServer.this.nodeList.size() - 1;
         }
 
         AckReceiver(AtomicBoolean status, int size) throws SocketException {
