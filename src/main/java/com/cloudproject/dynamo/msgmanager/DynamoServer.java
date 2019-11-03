@@ -545,12 +545,14 @@ public class DynamoServer implements NotificationListener {
     private boolean deleteFolder(String name) {
         boolean status = false;
         try {
-            FileUtils.deleteDirectory(new File("/" + name));
-            status = true;
+            File file = new File("/" + name);
+            if (file.exists()) {
+                FileUtils.deleteDirectory(new File("/" + name));
+                status = true;
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
-
         return status;
     }
 
@@ -678,12 +680,13 @@ public class DynamoServer implements NotificationListener {
     private boolean createFile(String folder, String name, String contents) {
         boolean status = false;
         try {
-            File file = new File("/" + folder + "/" + name);
-            if (!file.exists()) {
-                FileUtils.write(file, contents, Charset.defaultCharset(), false);
-                status = true;
-            } else {
-                return status;
+            File parent = new File("/" + folder);
+            if (parent.exists()) {
+                File file = new File(parent, name);
+                if (!file.exists()) {
+                    FileUtils.write(file, contents, Charset.defaultCharset(), false);
+                    status = true;
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
