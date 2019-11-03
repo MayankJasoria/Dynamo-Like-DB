@@ -628,6 +628,7 @@ public class DynamoServer implements NotificationListener {
         // key present in other nodes
         if (hashNodes.size() > 0) {
             try {
+                System.out.println("Sending request to " + hashNodes.size() + " other nodes");
                 AckReceiver ackReceiver = new AckReceiver(success, hashNodes.size());
 
                 // initialize Acknowledgement Receiver thread to listen for acknowledgements
