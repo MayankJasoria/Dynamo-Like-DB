@@ -355,10 +355,10 @@ public class DynamoServer implements NotificationListener {
      *
      * @param messageType The type of message to be sent
      * @param payload     The message payload
-     * @param nodeList    List of nodes which will receive the message
+     * @param sendList    List of nodes which will receive the message
      */
-    private void sendRequests(MessageTypes messageType, Object payload, ArrayList<? extends DynamoNode> nodeList) {
-        this.executorService.execute(new MessageSender(messageType, payload, nodeList));
+    private void sendRequests(MessageTypes messageType, Object payload, ArrayList<DynamoNode> sendList) {
+        this.executorService.execute(new MessageSender(messageType, payload, sendList));
     }
 
     /**
@@ -421,7 +421,7 @@ public class DynamoServer implements NotificationListener {
         try {
             Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
             sendRequestToRandNode(new ForwardPayload(messageType, bucketName, inputObject, 2));
-            future.get(10, TimeUnit.SECONDS);
+            future.get(20, TimeUnit.SECONDS);
             /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
              *  it is occupying a port and CPU time without any reason.
              */
@@ -438,11 +438,11 @@ public class DynamoServer implements NotificationListener {
                 case OBJECT_UPDATE:
                     outputModel.setResponse("Record " +
                             ((ObjectInputModel) inputObject).getKey() + " : " + ((ObjectInputModel) inputObject).getValue() +
-                            (outputModel.isStatus() ? " updated successfully" : " updation failed"));
+                            (outputModel.isStatus() ? " updated successfully" : " update failed"));
                     break;
                 case OBJECT_DELETE:
                     outputModel.setResponse("Record " + inputObject +
-                            (outputModel.isStatus() ? " removal successfully" : " removed failed"));
+                            (outputModel.isStatus() ? " removed successfully" : " removal failed"));
                     break;
             }
         } catch (ExecutionException | InterruptedException | IOException e) {
@@ -886,17 +886,17 @@ public class DynamoServer implements NotificationListener {
 
     private class MessageSender implements Runnable {
         DynamoMessage sendMsg;
-        ArrayList<? extends DynamoNode> nodeList;
+        ArrayList<DynamoNode> sendList;
 
         MessageSender(MessageTypes type, Object payload) {
-            sendMsg =
-                    new DynamoMessage(DynamoServer.this.node, type, payload);
-            nodeList = DynamoServer.this.nodeList;
+            sendMsg = new DynamoMessage(DynamoServer.this.node, type, payload);
+            sendList = new ArrayList<>();
+            sendList.addAll(DynamoServer.this.nodeList);
         }
 
-        MessageSender(MessageTypes type, Object payload, ArrayList<? extends DynamoNode> nodeList) {
+        MessageSender(MessageTypes type, Object payload, ArrayList<DynamoNode> sendList) {
             this(type, payload);
-            this.nodeList = nodeList;
+            this.sendList = sendList;
         }
 
         public void run() {
@@ -908,7 +908,7 @@ public class DynamoServer implements NotificationListener {
                         e.printStackTrace();
                     }
                 }
-                for (DynamoNode node : nodeList) {
+                for (DynamoNode node : sendList) {
                     try {
                         if (!node.isApiNode()) {
                             DynamoServer.this.sendMessage(node, sendMsg);
@@ -1096,11 +1096,19 @@ public class DynamoServer implements NotificationListener {
                                 break;
                             case FORWARD:
                                 ForwardPayload payload = (ForwardPayload) msg.payload;
+
+                                // get the list of hash nodes if applicable
                                 ArrayList<DynamoNode> hashNodes = null;
-                                if (payload.getRequestType() != MessageTypes.BUCKET_CREATE ||
-                                        payload.getRequestType() != MessageTypes.BUCKET_DELETE) {
+                                if (payload.getRequestType() == MessageTypes.OBJECT_DELETE ||
+                                        payload.getRequestType() == MessageTypes.OBJECT_READ) {
+                                    hashNodes = getHashNodes(String.valueOf(payload.getInputModel()));
+                                } else if (payload.getRequestType() == MessageTypes.OBJECT_CREATE ||
+                                        payload.getRequestType() == MessageTypes.OBJECT_UPDATE) {
                                     hashNodes = getHashNodes(((ObjectInputModel) payload.getInputModel()).getKey());
                                 }
+
+                                boolean isCoord = isCoordinator(hashNodes);
+
                                 switch (payload.getRequestType()) {
                                     case BUCKET_CREATE:
                                         status = createBucket(payload.getBucketName());
@@ -1109,7 +1117,7 @@ public class DynamoServer implements NotificationListener {
                                         status = deleteBucket(payload.getBucketName());
                                         break;
                                     case OBJECT_CREATE:
-                                        if (isCoordinator(hashNodes)) {
+                                        if (isCoord) {
                                             System.out.println("~DEBUG~ addRecord() being called");
                                             assert hashNodes != null;
                                             status = addRecord(payload.getBucketName(),
@@ -1122,7 +1130,7 @@ public class DynamoServer implements NotificationListener {
                                         }
                                         break;
                                     case OBJECT_UPDATE:
-                                        if (isCoordinator(hashNodes)) {
+                                        if (isCoord) {
                                             System.out.println("~DEBUG~ updateRecord() being called");
                                             assert hashNodes != null;
                                             status = updateRecord(payload.getBucketName(),
@@ -1156,16 +1164,18 @@ public class DynamoServer implements NotificationListener {
                                 }
 
                                 // return to ForwardReceiver
-                                if (isCoordinator(hashNodes)) {
                                     if (payload.getRequestType() == MessageTypes.OBJECT_READ) {
                                         /* something more needs to be sent back in case of READ */
                                         sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
                                                 MessageTypes.FORWARD_ACK_READ, list));
-                                    } else {
+                                    } else if ((payload.getRequestType() == MessageTypes.OBJECT_CREATE && isCoord) ||
+                                            (payload.getRequestType() == MessageTypes.OBJECT_UPDATE && isCoord) ||
+                                            (payload.getRequestType() == MessageTypes.BUCKET_CREATE) ||
+                                            (payload.getRequestType() == MessageTypes.BUCKET_DELETE) ||
+                                            (payload.getRequestType() == MessageTypes.OBJECT_DELETE)) {
                                         sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
                                                 MessageTypes.FORWARD_ACK, status));
                                     }
-                                }
                                 break;
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
@@ -1293,7 +1303,6 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private class ReadReceiver extends Thread {
         private AtomicBoolean keepRunning;
         private DatagramSocket readServer;
