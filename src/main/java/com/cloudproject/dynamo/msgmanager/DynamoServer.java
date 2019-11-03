@@ -1113,9 +1113,17 @@ public class DynamoServer implements NotificationListener {
                         System.out.println(">> ACK: quorum: " + numReplicas + " receives: " + receives);
                         DynamoMessage msg = (DynamoMessage) readObject;
                         AckPayload payload = (AckPayload) msg.payload;
-                        this.status.set(this.status.get() & (payload.isStatus()));
+//                        this.status.set(this.status.get() & (payload.isStatus()));
+                        if (payload.isStatus()) {
+                            success++;
+                        }
                         /* TODO: track separate receives by txnID */
-                        if (receives >= numReplicas) {
+                        if (receives >= numReplicas || success >= quorum) {
+                            if (success >= quorum) {
+                                status.set(true);
+                            } else {
+                                status.set(false);
+                            }
                             System.out.println(">> ACK: Quorum achieved! Success!");
                             switch (payload.getRequestType()) {
                                 case BUCKET_CREATE:

@@ -38,7 +38,7 @@ public class HashingManager<T extends Node> {
     /**
      * Adds a new physical node to the hash ring, with specified number of replicas
      *
-     * @param pNode      the physical node to be added to the ring
+     * @param pNode the physical node to be added to the ring
      */
     public void addNode(T pNode) {
         if (vNodeCount < 0) {
@@ -85,14 +85,34 @@ public class HashingManager<T extends Node> {
 //        Long nodeHash = (!tailMap.isEmpty()) ? tailMap.firstKey() : ring.firstKey();
 //        ring.get(nodeHash).getPhysicalNode();
         ArrayList<T> nodesList = new ArrayList<>();
-        for (int i = 0; i < Quorum.getReplicas(); i++) {
-            if (tailMap.isEmpty()) {
-                tailMap = ring.tailMap(ring.firstKey());
+//        for (int i = 0; i < Quorum.getReplicas(); i++) {
+//            if (tailMap.isEmpty()) {
+//                // loop around
+//                tailMap = ring.tailMap(ring.firstKey());
+//            }
+//            if (!nodesList.contains(ring.get(tailMap.firstKey()).getPhysicalNode())) {
+//                // new physical node, add to list
+//                nodesList.add(ring.get(tailMap.firstKey()).getPhysicalNode());
+//            } else {
+//                // physical node already exists in list, find another node
+//                i--;
+//            }
+//            // get next element of the ring
+//            tailMap = ring.tailMap(tailMap.firstKey());
+//        }
+        int i = 0;
+
+        Long nodeHash = (!tailMap.isEmpty()) ? tailMap.firstKey() : ring.firstKey();
+        while (i < Quorum.getReplicas()) {
+            VirtualNode<T> node = ring.get(nodeHash);
+            if (!nodesList.contains(node.getPhysicalNode())) {
+                // if physical node was not already added, add it
+                nodesList.add(node.getPhysicalNode());
+                i++;
             }
-            if (!nodesList.contains(ring.get(tailMap.firstKey()).getPhysicalNode())) {
-                nodesList.add(ring.get(tailMap.firstKey()).getPhysicalNode());
-            }
-            tailMap = ring.tailMap(tailMap.firstKey());
+
+            // get key for next node; loop around if higherKey does not exist
+            nodeHash = (ring.higherKey(nodeHash) != null ? ring.higherKey(nodeHash) : ring.firstKey());
         }
 
         return nodesList;
