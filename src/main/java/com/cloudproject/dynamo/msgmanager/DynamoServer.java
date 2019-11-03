@@ -137,7 +137,7 @@ public class DynamoServer implements NotificationListener {
 
     private void sendMessage(DynamoNode node, DynamoMessage msg) throws IOException {
         //vclock
-    	JVec jv=new JVec(DynamoServer.this.node);
+    	Vector jv=new Vector(DynamoServer.this.node);
     	
     	ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(baos);
@@ -538,7 +538,7 @@ public class DynamoServer implements NotificationListener {
                     /* Parse this packet into an object */
                    
                     //vclock
-                    JVec jv=new JVec(DynamoServer.this.node);
+                    Vector jv=new Vector(DynamoServer.this.node);
                     byte[] res=jv.unpackReceive(p.getData());
                     ByteArrayInputStream bais = new ByteArrayInputStream(res);
                     ObjectInputStream ois = new ObjectInputStream(bais);
@@ -677,7 +677,7 @@ public class DynamoServer implements NotificationListener {
                     DynamoServer.this.ioServer.receive(p);
                     /* Parse this packet into an object */
                   //vclock
-                    JVec jv=new JVec(DynamoServer.this.node);
+                    Vector jv=new Vector(DynamoServer.this.node);
                     byte[] res=jv.unpackReceive(p.getData());
                     ByteArrayInputStream bais = new ByteArrayInputStream(res);
                     //ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
@@ -779,7 +779,7 @@ public class DynamoServer implements NotificationListener {
                     DynamoServer.this.server.receive(p);
                     /* Parse this packet into an object */
                   //vclock
-                    JVec jv=new JVec(DynamoServer.this.node);
+                    Vector jv=new Vector(DynamoServer.this.node);
                     byte[] res=jv.unpackReceive(p.getData());
                     ByteArrayInputStream bais = new ByteArrayInputStream(res);
                     //ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
