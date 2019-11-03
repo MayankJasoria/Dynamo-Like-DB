@@ -1,6 +1,7 @@
 package com.cloudproject.dynamo.consistenthash;
 
 import com.cloudproject.dynamo.models.Node;
+import com.cloudproject.dynamo.models.Quorum;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -17,33 +18,29 @@ public class HashingManager<T extends Node> {
 
     private final TreeMap<Long, VirtualNode<T>> ring;
     private final HashFunction hashFunction;
-    private final int backups;
+    private final int vNodeCount;
     private final Object lock;
 
-    public HashingManager(Collection<T> pNodes, int vNodeCount, @NotNull HashFunction hashFunction, int backups) {
+    public HashingManager(Collection<T> pNodes, @NotNull HashFunction hashFunction) {
         this.hashFunction = hashFunction;
         this.ring = new TreeMap<>();
-        this.backups = backups;
+
+        this.vNodeCount = 5;
 
         lock = new Object();
 
         // Add all existing nodes to the hash ring
         for (T pNode : pNodes) {
-            addNode(pNode, vNodeCount);
+            addNode(pNode);
         }
-    }
-
-    public HashingManager(Collection<T> pNodes, int vNodeCount, @NotNull HashFunction hashFunction) {
-        this(pNodes, vNodeCount, hashFunction, 2);
     }
 
     /**
      * Adds a new physical node to the hash ring, with specified number of replicas
      *
      * @param pNode      the physical node to be added to the ring
-     * @param vNodeCount the number of replicas of the required node
      */
-    public void addNode(T pNode, int vNodeCount) {
+    public void addNode(T pNode) {
         if (vNodeCount < 0) {
             throw new IllegalArgumentException("Number of virtual nodes cannot be negative!");
         }
@@ -88,7 +85,7 @@ public class HashingManager<T extends Node> {
 //        Long nodeHash = (!tailMap.isEmpty()) ? tailMap.firstKey() : ring.firstKey();
 //        ring.get(nodeHash).getPhysicalNode();
         ArrayList<T> nodesList = new ArrayList<>();
-        for (int i = 0; i < backups; i++) {
+        for (int i = 0; i < Quorum.getReplicas(); i++) {
             if (tailMap.isEmpty()) {
                 tailMap = ring.tailMap(ring.firstKey());
             }

@@ -37,13 +37,11 @@ public class DynamoServer implements NotificationListener {
     private int gossipInt;
     private int ttl;
     private HashingManager<DynamoNode> hashingManager;
-    private int backups;
-    private int vNodeCount;
     private int ackPort;
     private int ioPort;
 
-    private DynamoServer(String name, String address, int gossipInt, int ttl, int vNodeCount,
-                         @Nullable ArrayList<String> addr_list, int backups, boolean apiNode) throws SocketException {
+    private DynamoServer(String name, String address, int gossipInt, int ttl,
+                         @Nullable ArrayList<String> addr_list, boolean apiNode) throws SocketException {
 
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
@@ -72,9 +70,6 @@ public class DynamoServer implements NotificationListener {
 
         this.node = new DynamoNode(name, address, this, 0, ttl, apiNode);
         int port = Integer.parseInt(address.split(":")[1]);
-
-        this.backups = (backups > 0) ? backups : 1;
-        this.vNodeCount = vNodeCount;
 
         /* init Random */
         this.random = new Random();
@@ -241,7 +236,7 @@ public class DynamoServer implements NotificationListener {
                                     DynamoServer.this.nodeList.add(newNode);
 
                                     if (hashingManager != null && !newNode.isApiNode()) {
-                                        hashingManager.addNode(newNode, vNodeCount);
+                                        hashingManager.addNode(newNode);
                                     }
 
                                     newNode.startTimer();
@@ -258,7 +253,7 @@ public class DynamoServer implements NotificationListener {
                                 DynamoServer.this.nodeList.add(newNode);
 
                                 if (hashingManager != null && !newNode.isApiNode()) {
-                                    hashingManager.addNode(newNode, vNodeCount);
+                                    hashingManager.addNode(newNode);
                                 }
 
                                 newNode.startTimer();
@@ -294,29 +289,22 @@ public class DynamoServer implements NotificationListener {
         if (selfServer == null) {
             if (args == null) {
                 System.out.println("[ERROR] Arguments required");
-            } else if (args.length < 6) {
+            } else if (args.length < 5) {
                 System.out.println("[ERROR] Expected at least 5 arguments, received " + args.length);
             } else {
-                String[] hashParams = args[4].split(":");
-                //System.out.println("args[4]: " + args[4]);
-                int vNodeCount = Integer.parseInt(hashParams[0]);
-                int backups = 0;
-                if (hashParams.length == 2) {
-                    backups = Integer.parseInt(hashParams[1]);
-                }
-                if (args.length == 6) {
+                if (args.length == 5) {
                     selfServer =
                             new DynamoServer(args[0], args[1], Integer.parseInt(args[2]),
-                                    Integer.parseInt(args[3]), vNodeCount, null,
-                                    backups, Boolean.parseBoolean(args[5]));
+                                    Integer.parseInt(args[3]), null,
+                                    Boolean.parseBoolean(args[4]));
                     selfServer.start();
-                } else if (args.length == 7) {
+                } else if (args.length == 6) {
                     ArrayList<String> addr_list =
-                            new ArrayList<>(Arrays.asList(args[6].split(",")));
+                            new ArrayList<>(Arrays.asList(args[5].split(",")));
                     selfServer =
                             new DynamoServer(args[0], args[1], Integer.parseInt(args[2]),
-                                    Integer.parseInt(args[3]), vNodeCount, addr_list,
-                                    backups, Boolean.parseBoolean(args[5]));
+                                    Integer.parseInt(args[3]), addr_list,
+                                    Boolean.parseBoolean(args[4]));
                     selfServer.start();
                 } else {
                     System.out.println("[ERROR] Expected 5 or 6 arguments, received " + args.length);
@@ -565,7 +553,7 @@ public class DynamoServer implements NotificationListener {
      */
     private boolean addRecord(String bucket, ObjectInputModel inputModel) {
         if (hashingManager == null) {
-            initializeHashingManager(vNodeCount, new CityHash(), backups);
+            initializeHashingManager(new CityHash());
         }
 
         // get all the nodes to which this record should be written
@@ -574,7 +562,7 @@ public class DynamoServer implements NotificationListener {
         AtomicBoolean success = new AtomicBoolean(true);
         if (hashNodes.contains(this.node)) {
             // this node is one of the hash replicas, create object here
-            System.out.println("Node " + node.name + " is part of hash!");
+            System.out.println("Node " + this.node.name + " is part of hash!");
             success.set(createFile(bucket, inputModel.getKey(), inputModel.getValue()));
             hashNodes.remove(this.node);
         }
@@ -586,7 +574,7 @@ public class DynamoServer implements NotificationListener {
                 for (DynamoNode node : hashNodes) {
                     System.out.println(node.name + " " + node.getAddress());
                 }
-                AckReceiver ackThread = new AckReceiver(success, hashNodes.size());
+                AckReceiver ackThread = new AckReceiver(success, hashNodes.size(), Quorum.getWriteQuorum());
                 Future future = this.executorService.submit(ackThread);
 
                 // send a request to each relevant hash-node to create the object
@@ -614,7 +602,7 @@ public class DynamoServer implements NotificationListener {
      */
     private boolean deleteRecord(String bucketName, String key) {
         if (hashingManager == null) {
-            initializeHashingManager(vNodeCount, new CityHash(), backups);
+            initializeHashingManager(new CityHash());
         }
 
         // get all nodes in which this value should exist
@@ -634,7 +622,7 @@ public class DynamoServer implements NotificationListener {
         if (hashNodes.size() > 0) {
             try {
                 System.out.println("Sending DELETE request to " + hashNodes.size() + " other nodes");
-                AckReceiver ackReceiver = new AckReceiver(success, hashNodes.size());
+                AckReceiver ackReceiver = new AckReceiver(success, hashNodes.size(), Quorum.getWriteQuorum());
 
                 // initialize Acknowledgement Receiver thread to listen for acknowledgements
                 Future future = this.executorService.submit(ackReceiver);
@@ -655,7 +643,7 @@ public class DynamoServer implements NotificationListener {
 
     private boolean updateRecord(String bucket, ObjectInputModel inputModel) {
         if (hashingManager == null) {
-            initializeHashingManager(vNodeCount, new CityHash(), backups);
+            initializeHashingManager(new CityHash());
         }
 
         // get all the nodes to which this record should be written
@@ -676,7 +664,7 @@ public class DynamoServer implements NotificationListener {
                 for (DynamoNode node : hashNodes) {
                     System.out.println(node.name + " " + node.getAddress());
                 }
-                AckReceiver ackThread = new AckReceiver(success, hashNodes.size());
+                AckReceiver ackThread = new AckReceiver(success, hashNodes.size(), Quorum.getWriteQuorum());
                 Future future = this.executorService.submit(ackThread);
 
                 // send a request to each relevant hash-node to create the object
@@ -703,7 +691,7 @@ public class DynamoServer implements NotificationListener {
      */
     public void readRecord(String bucket, ObjectInputModel inputModel) {
         if (hashingManager == null) {
-            initializeHashingManager(vNodeCount, new CityHash(), backups);
+            initializeHashingManager(new CityHash());
         }
 
         sendRequests(MessageTypes.OBJECT_READ,
@@ -918,11 +906,9 @@ public class DynamoServer implements NotificationListener {
     /**
      * Method to initialize an instance of {@link HashingManager} for first time use
      *
-     * @param vNodeCount   the number of replicates of a node to be maintained in the hash ring
      * @param hashFunction an instance of the hash function to be used
-     * @param backups      the number of copies of the objects, including original, to be maintained
      */
-    private void initializeHashingManager(int vNodeCount, HashFunction hashFunction, int backups) {
+    private void initializeHashingManager(HashFunction hashFunction) {
         if (hashingManager == null) {
             // initialize hashingManager only if it is null
             ArrayList<DynamoNode> hashNodes = new ArrayList<>();
@@ -934,11 +920,7 @@ public class DynamoServer implements NotificationListener {
 
             hashNodes.add(this.node);
 
-            if (backups != 2) {
-                hashingManager = new HashingManager<>(hashNodes, vNodeCount, hashFunction, backups);
-            } else {
-                hashingManager = new HashingManager<>(hashNodes, vNodeCount, hashFunction);
-            }
+            hashingManager = new HashingManager<>(hashNodes, hashFunction);
         }
     }
 
@@ -1091,25 +1073,28 @@ public class DynamoServer implements NotificationListener {
         private AtomicBoolean keepRunning;
         private DatagramSocket ackServer;
         private AtomicBoolean status;
+        private int numReplicas;
         private int quorum;
 
         AckReceiver(AtomicBoolean status) throws SocketException {
-            keepRunning = new AtomicBoolean(true);
-            ackServer = new DatagramSocket(DynamoServer.this.ackPort);
+            this.keepRunning = new AtomicBoolean(true);
+            this.ackServer = new DatagramSocket(DynamoServer.this.ackPort);
             this.status = status;
-            quorum = DynamoServer.this.nodeList.size() - 1;
+            this.numReplicas = DynamoServer.this.nodeList.size() - 1;
+            this.quorum = numReplicas;
         }
 
-        AckReceiver(AtomicBoolean status, int size) throws SocketException {
+        AckReceiver(AtomicBoolean status, int size, int quorum) throws SocketException {
             this(status);
-            this.quorum = size;
+            this.numReplicas = size;
+            this.quorum = quorum;
         }
 
         @Override
         public void run() {
-            // TODO: change quorum to actual quorum-based implementation
             int receives = 0;
-            System.out.println(">> ACK: quorum init: " + quorum + " receives init : " + receives);
+            int success = 0;
+            System.out.println(">> ACK: quorum init: " + numReplicas + " receives init : " + receives);
             while (keepRunning.get()) {
                 /* Logic for receiving */
                 System.out.println("AckGhot");
@@ -1125,12 +1110,12 @@ public class DynamoServer implements NotificationListener {
                     if (readObject instanceof DynamoMessage) {
                         // TODO: Update method to manage successful receives vs. no. of receives
                         receives++;
-                        System.out.println(">> ACK: quorum: " + quorum + " receives: " + receives);
+                        System.out.println(">> ACK: quorum: " + numReplicas + " receives: " + receives);
                         DynamoMessage msg = (DynamoMessage) readObject;
                         AckPayload payload = (AckPayload) msg.payload;
                         this.status.set(this.status.get() & (payload.isStatus()));
                         /* TODO: track separate receives by txnID */
-                        if (receives >= quorum) {
+                        if (receives >= numReplicas) {
                             System.out.println(">> ACK: Quorum achieved! Success!");
                             switch (payload.getRequestType()) {
                                 case BUCKET_CREATE:
