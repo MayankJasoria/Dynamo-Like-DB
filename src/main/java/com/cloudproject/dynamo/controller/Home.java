@@ -47,6 +47,7 @@ public class Home {
     public OutputModel shutdown() {
         OutputModel outputModel = new OutputModel();
         dynamoServer.shutdownDynamoServer(outputModel);
+        dynamoServer = null;
         return outputModel;
     }
 

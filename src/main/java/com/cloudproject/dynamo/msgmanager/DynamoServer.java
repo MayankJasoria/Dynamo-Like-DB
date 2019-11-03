@@ -343,6 +343,7 @@ public class DynamoServer implements NotificationListener {
         }
         outputModel.setResponse("Server successfully shutdown");
         outputModel.setStatus(true);
+        selfServer = null;
     }
 
     /**
