@@ -18,7 +18,6 @@ public class HashingManager<T extends Node> {
     private final TreeMap<Long, VirtualNode<T>> ring;
     private final HashFunction hashFunction;
     private final int backups;
-
     private final Object lock;
 
     public HashingManager(Collection<T> pNodes, int vNodeCount, @NotNull HashFunction hashFunction, int backups) {
