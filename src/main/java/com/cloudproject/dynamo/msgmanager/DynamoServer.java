@@ -351,6 +351,7 @@ public class DynamoServer implements NotificationListener {
         } catch (SocketException e) {
             outputModel.setStatus(false);
             outputModel.setResponse(e.getMessage());
+            outputModel.setVectorClocks(DynamoServer.this.node.getVc().returnVCString());
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
