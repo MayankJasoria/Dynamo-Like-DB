@@ -728,15 +728,16 @@ public class DynamoServer implements NotificationListener {
         int readQuorum = Quorum.getReadQuorum();
         AtomicBoolean success = new AtomicBoolean(false);
 
+        ArrayList<ObjectIOModel> out = new ArrayList<>();
+
         if (isCoordinator(hashNodes)) {
             ObjectIOModel ioModel = readFile(bucket, key);
             if (ioModel != null && !ioModel.getValue().isEmpty()) {
+                out.add(ioModel);
                 hashNodes.remove(this.node);
                 readQuorum--;
             }
         }
-
-        ArrayList<ObjectIOModel> out = new ArrayList<>();
 
         try {
             ReadReceiver readThread = new ReadReceiver(hashNodes.size(), readQuorum, out, success);
