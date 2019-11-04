@@ -30,18 +30,16 @@ public class DynamoServer implements NotificationListener {
 
     private static DynamoServer selfServer;
 
-    private ExecutorService executorService;
-    private DatagramSocket server;
-    private DatagramSocket ioServer;
-    private DynamoNode node;
-    private Random random;
+    private final ExecutorService executorService;
+    private final DatagramSocket server;
+    private final DatagramSocket ioServer;
+    private final DynamoNode node;
+    private final Random random;
     private int gossipInt;
     private int ttl;
     private HashingManager<DynamoNode> hashingManager;
     private int ackPort;
     private int ioPort;
-    /* for vector clocks */
-    private long version;
 
     private DynamoServer(String name, String address, int gossipInt, int ttl,
                          @Nullable ArrayList<String> addr_list, boolean apiNode) throws SocketException {
@@ -58,7 +56,6 @@ public class DynamoServer implements NotificationListener {
             }
         }));
 
-        this.version = 0;
         this.ackPort = 9720;
         this.ioPort = 9700;
         this.nodeList = new ArrayList<>();
@@ -182,13 +179,16 @@ public class DynamoServer implements NotificationListener {
      *
      * @return instance of a random node from nodeList
      */
-    private DynamoNode getRandomNode() {
+    private DynamoNode getRandomNode(boolean excludeAPIgateway) {
 
         ArrayList<DynamoNode> randList = new ArrayList<>(nodeList);
-        for (DynamoNode node : randList) {
-            if (node.isApiNode()) {
-                randList.remove(node);
-                break;
+
+        if (excludeAPIgateway) {
+            for (DynamoNode node : randList) {
+                if (node.isApiNode()) {
+                    randList.remove(node);
+                    break;
+                }
             }
         }
 
@@ -208,7 +208,7 @@ public class DynamoServer implements NotificationListener {
         FileUtils.write(file, Integer.toString(this.node.getHeartbeat()), Charset.defaultCharset(), false);
         //ArrayList<DynamoNode> sendList = cloneArrayList(this.nodeList);
         synchronized (this.nodeList) {
-            DynamoNode dstNode = this.getRandomNode();
+            DynamoNode dstNode = this.getRandomNode(false);
             if (dstNode != null) {
                 DynamoMessage listMsg =
                         new DynamoMessage(this.node, MessageTypes.NODE_LIST, this.nodeList);
@@ -226,6 +226,13 @@ public class DynamoServer implements NotificationListener {
             synchronized (DynamoServer.this.deadList) {
                 synchronized (DynamoServer.this.nodeList) {
                     /* remove self from remoteNode list */
+//                    for (int i = 0; i < remoteNodesList.size(); i++) {
+//                        if(remoteNodesList.get(i).equals(DynamoServer.this.node)) {
+//                            remoteNodesList.remove(i);
+//                            i--;
+//                        }
+//                    }
+
                     remoteNodesList.remove(DynamoServer.this.node);
                      /* Do the same with rest of the nodes */
                     for (DynamoNode remoteNode : remoteNodesList) {
@@ -385,7 +392,8 @@ public class DynamoServer implements NotificationListener {
 //        ArrayList<DynamoNode> list = new ArrayList<>();
 //        list.add(dynamoNode);
 //        sendRequests(MessageTypes.FORWARD, payload, list);
-        this.sendMessage(getRandomNode(), new DynamoMessage(this.node, MessageTypes.FORWARD, payload));
+        this.sendMessage(getRandomNode(true),
+                new DynamoMessage(this.node, MessageTypes.FORWARD, payload));
     }
 
     /**
@@ -479,13 +487,12 @@ public class DynamoServer implements NotificationListener {
     private void forwardToRandomNode(ForwardPayload payload, ArrayList<DynamoNode> hashNodes, DynamoNode apiGateway) {
         /* This node is not a part of the hashnodes, forward request to one of the hashNodes */
         if (hashNodes.size() > 0) {
-            int rand = random.nextInt(hashNodes.size());
-            node = hashNodes.get(rand);
+            DynamoNode newCoord = hashNodes.get(random.nextInt(hashNodes.size()));
 
             /* Send forward to this node, src being the API gateway */
             DynamoMessage msg = new DynamoMessage(apiGateway, MessageTypes.FORWARD, payload);
             try {
-                this.sendMessage(node, msg);
+                this.sendMessage(newCoord, msg);
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -719,6 +726,7 @@ public class DynamoServer implements NotificationListener {
 
         /* if is a coord then read from this node and decrement read quorum if applicable */
         int readQuorum = Quorum.getReadQuorum();
+        AtomicBoolean success = new AtomicBoolean(false);
 
         if (isCoordinator(hashNodes)) {
             ObjectIOModel ioModel = readFile(bucket, key);
@@ -731,7 +739,7 @@ public class DynamoServer implements NotificationListener {
         ArrayList<ObjectIOModel> out = new ArrayList<>();
 
         try {
-            ReadReceiver readThread = new ReadReceiver(hashNodes.size(), readQuorum, out);
+            ReadReceiver readThread = new ReadReceiver(hashNodes.size(), readQuorum, out, success);
             // send a request to each relevant hash-node to create the object
             Future future = this.executorService.submit(readThread);
             sendRequests(MessageTypes.OBJECT_READ, new Pair<>(bucket, key), hashNodes);
@@ -1324,12 +1332,13 @@ public class DynamoServer implements NotificationListener {
         private int numReplicas;
         private ArrayList<ObjectIOModel> out;
 
-        ReadReceiver(int size, int quorum, ArrayList<ObjectIOModel> out) throws SocketException {
+        ReadReceiver(int size, int quorum, ArrayList<ObjectIOModel> out, AtomicBoolean status) throws SocketException {
             keepRunning = new AtomicBoolean(true);
             readServer = new DatagramSocket(DynamoServer.this.ackPort);
             this.quorum = quorum;
             this.numReplicas = size;
             this.out = out;
+            this.status = status;
         }
 
         @Override
