@@ -140,7 +140,7 @@ public class DynamoServer implements NotificationListener {
         System.out.println("+------------------+");
     }
 
-    private void sendMessage(DynamoNode node, DynamoMessage msg) throws IOException {
+    public void sendMessage(DynamoNode node, DynamoMessage msg) throws IOException {
         //vclock
 //        JVec jv=new JVec(DynamoServer.this.node);
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -540,7 +540,7 @@ public class DynamoServer implements NotificationListener {
      * @return true if folder was created successfully, false otherwise
      */
     private boolean createFolder(String name) {
-        return new File("/" + name).mkdir();
+        return new File("/buckets/" + name).mkdir();
     }
 
     /**
@@ -583,9 +583,9 @@ public class DynamoServer implements NotificationListener {
     private boolean deleteFolder(String name) {
         boolean status = false;
         try {
-            File file = new File("/" + name);
+            File file = new File("/buckets/" + name);
             if (file.exists()) {
-                FileUtils.deleteDirectory(new File("/" + name));
+                FileUtils.deleteDirectory(file);
                 status = true;
             }
         } catch (IOException e) {
@@ -771,7 +771,7 @@ public class DynamoServer implements NotificationListener {
         String json = AppConfig.getParser().serialize(ioModel);
         boolean status = false;
         try {
-            File parent = new File("/" + folder);
+            File parent = new File("/buckets/" + folder);
             if (parent.exists()) {
                 File file = new File(parent, name);
                 if (!file.exists()) {
@@ -795,7 +795,7 @@ public class DynamoServer implements NotificationListener {
      */
     private ObjectIOModel readFile(String folder, String name) {
         ObjectIOModel contents = null;
-        File file = new File("/" + folder + "/" + name);
+        File file = new File("/buckets/" + folder + "/" + name);
         if (file.exists()) {
             try {
                 contents = AppConfig.getParser().deserialize(
@@ -819,7 +819,7 @@ public class DynamoServer implements NotificationListener {
      */
     private boolean updateFile(String folder, String name, String contents, boolean isCoord) {
         boolean status = false;
-        File file = new File("/" + folder + "/" + name);
+        File file = new File("/buckets/" + folder + "/" + name);
         if (file.exists()) {
             try {
                 // read file contents into ObjectIOModel
@@ -847,7 +847,7 @@ public class DynamoServer implements NotificationListener {
      */
     private boolean deleteFile(String folder, String name) {
         boolean status = false;
-        File file = new File("/" + folder + "/" + name);
+        File file = new File("/buckets/" + folder + "/" + name);
         if (file.exists()) {
             status = file.delete();
         }
@@ -1115,6 +1115,10 @@ public class DynamoServer implements NotificationListener {
                                                 obj.getKey() + "/" + obj.getValue(),
                                                 2, status)));
                                 break;
+
+                            case REHASH:
+                                executorService.execute(new Rehash((DynamoNode) msg.payload));
+                                break;
                             case FORWARD:
                                 ForwardPayload payload = (ForwardPayload) msg.payload;
 
@@ -1211,6 +1215,33 @@ public class DynamoServer implements NotificationListener {
                     e.printStackTrace();
                 }
             }
+        }
+    }
+
+    private class Rehash extends Thread {
+
+        private final DynamoNode destNode;
+
+        public Rehash(DynamoNode destNode) {
+            this.destNode = destNode;
+        }
+
+        @Override
+        public void run() {
+            if (hashingManager == null) {
+                initializeHashingManager(new CityHash());
+            }
+
+            try {
+                hashingManager.rehash("/buckets", DynamoServer.this, this.destNode);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        @Override
+        public void interrupt() {
+            super.interrupt();
         }
     }
 
@@ -1473,5 +1504,13 @@ public class DynamoServer implements NotificationListener {
                 this.randRecvServer.close();
             }
         }
+    }
+
+    public DynamoNode getNode() {
+        return node;
+    }
+
+    public ExecutorService getExecutorService() {
+        return executorService;
     }
 }

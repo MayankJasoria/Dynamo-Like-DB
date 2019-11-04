@@ -1,9 +1,20 @@
 package com.cloudproject.dynamo.consistenthash;
 
+import com.cloudproject.dynamo.models.MessageTypes;
 import com.cloudproject.dynamo.models.Node;
+import com.cloudproject.dynamo.models.ObjectInputModel;
 import com.cloudproject.dynamo.models.Quorum;
+import com.cloudproject.dynamo.msgmanager.DynamoMessage;
+import com.cloudproject.dynamo.msgmanager.DynamoNode;
+import com.cloudproject.dynamo.msgmanager.DynamoServer;
+import javafx.util.Pair;
+import org.apache.commons.io.FileUtils;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
+import java.io.IOException;
+import java.net.SocketException;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.SortedMap;
@@ -41,18 +52,99 @@ public class HashingManager<T extends Node> {
      * @param pNode the physical node to be added to the ring
      */
     public void addNode(T pNode) {
-        if (vNodeCount < 0) {
-            throw new IllegalArgumentException("Number of virtual nodes cannot be negative!");
+        try {
+            DynamoServer.startServer("Test", "test").getExecutorService().execute(new Rehash(pNode));
+        } catch (SocketException e) {
+            e.printStackTrace();
         }
-        int existingReplicas = getExistingReplicas(pNode);
-        for (int i = 0; i < vNodeCount; i++) {
-            VirtualNode<T> vNode = new VirtualNode<>(pNode, i + existingReplicas);
-            ring.put(hashFunction.hash(vNode.getAddress()), vNode);
+    }
 
-            // TODO: Rehash data from adjacent nodes, both previous one and next one
-            T lastHashNode = routeNodes(vNode.getAddress()).get(2);
-            // rehash all data (wherever applicable) from lastHashNode to pNode
-            // of which this is a vNode
+    private class Rehash extends Thread {
+
+        private final T pNode;
+
+        public Rehash(T pNode) {
+            this.pNode = pNode;
+
+        }
+
+        @Override
+        public void run() {
+            if (vNodeCount < 0) {
+                throw new IllegalArgumentException("Number of virtual nodes cannot be negative!");
+            }
+            try {
+                DynamoServer server = DynamoServer.startServer("Test", "test");
+
+                int existingReplicas = getExistingReplicas(pNode);
+                for (int i = 0; i < vNodeCount; i++) {
+                    VirtualNode<T> vNode = new VirtualNode<>(pNode, i + existingReplicas);
+                    ring.put(hashFunction.hash(vNode.getAddress()), vNode);
+
+                    // TODO: Rehash data from adjacent nodes, both previous one and next one
+                    T lastHashNode = routeNodes(vNode.getAddress()).get(2);
+                    // rehash all data (wherever applicable) from lastHashNode to pNode
+                    // of which this is a vNode
+                    T destNode = vNode.getPhysicalNode();
+                    String path = "/buckets";
+
+                    try {
+                        if (lastHashNode.getAddress()
+                                .equals((DynamoServer.startServer("Test", "test").getNode().getAddress()))) {
+                            /* then directly send actions to destNode */
+                            rehash(path, server, (DynamoNode) destNode);
+
+                        } else {
+                            /* send REHASH packets to lastHashNode */
+                            DynamoMessage msg =
+                                    new DynamoMessage(server.getNode(), MessageTypes.REHASH, destNode);
+                            server.sendMessage((DynamoNode) lastHashNode, msg);
+                        }
+
+                    } catch (SocketException e) {
+                        e.printStackTrace();
+                    }
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        @Override
+        public void interrupt() {
+            super.interrupt();
+        }
+    }
+
+    public void rehash(String path, DynamoServer server, DynamoNode destNode) throws IOException {
+        /* buckets */
+        File[] directories = new File(path).listFiles(File::isDirectory);
+        if (directories != null) {
+            for (File directory : directories) {
+                DynamoMessage msg =
+                        new DynamoMessage(server.getNode(), MessageTypes.BUCKET_CREATE, directory.getName());
+//                        DynamoNode dest = new DynamoNode("dest", destNode.getAddress(), )
+                DynamoNode dest = (DynamoNode) destNode;
+                server.sendMessage(dest, msg);
+
+                File[] files = directory.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        // check hash!
+                        if (routeNodes(f.getName()).get(0).getAddress().equals(destNode.getAddress())) {
+                            ObjectInputModel oim = new ObjectInputModel();
+                            oim.setKey(f.getName());
+                            oim.setValue(FileUtils.readFileToString(f, Charset.defaultCharset()));
+                            Pair<String, ObjectInputModel> payload =
+                                    new Pair<>(directory.getName(), oim);
+                            DynamoMessage fileMsg = new DynamoMessage(server.getNode(),
+                                    MessageTypes.OBJECT_CREATE, payload);
+                            server.sendMessage(dest, fileMsg);
+                            f.delete();
+                        }
+                    }
+                }
+            }
         }
     }
 

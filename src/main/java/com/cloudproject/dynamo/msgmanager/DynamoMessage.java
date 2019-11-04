@@ -4,12 +4,12 @@ import com.cloudproject.dynamo.models.MessageTypes;
 
 import java.io.Serializable;
 
-class DynamoMessage implements Serializable {
+public class DynamoMessage implements Serializable {
     DynamoNode srcNode;
     MessageTypes type;
     Object payload;
 
-    DynamoMessage(DynamoNode srcNode, MessageTypes type, Object payload) {
+    public DynamoMessage(DynamoNode srcNode, MessageTypes type, Object payload) {
         this.srcNode = srcNode;
         this.type = type;
         this.payload = payload;
