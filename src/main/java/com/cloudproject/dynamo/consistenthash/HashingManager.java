@@ -50,6 +50,9 @@ public class HashingManager<T extends Node> {
             ring.put(hashFunction.hash(vNode.getAddress()), vNode);
 
             // TODO: Rehash data from adjacent nodes, both previous one and next one
+            T lastHashNode = routeNodes(vNode.getAddress()).get(2);
+            // rehash all data (wherever applicable) from lastHashNode to pNode
+            // of which this is a vNode
         }
     }
 
