@@ -863,12 +863,16 @@ public class DynamoServer implements NotificationListener {
         }
 
         public void run() {
+
+            System.out.print("[Dynamo Server] Gossip receive started");
+
             while (keepRunning.get()) {
                 /* Logic for receiving */
-                System.out.println("ghot");
+
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] GOSSIP received ");
                 try {
                     DynamoServer.this.server.receive(p);
                     /* Parse this packet into an object */
@@ -881,6 +885,7 @@ public class DynamoServer implements NotificationListener {
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.print("from " + msg.srcNode.name);
                         boolean status;
                         String bucketName = null;
                         Pair<String, ObjectInputModel> obj = null;
@@ -1030,12 +1035,16 @@ public class DynamoServer implements NotificationListener {
         }
 
         public void run() {
+
+            System.out.println("[Dynamo Server] IO receiver started");
             while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("ioGhot");
+
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+
+                System.out.print("[Dynamo Server] IO request received ");
+
                 try {
                     DynamoServer.this.ioServer.receive(p);
                     /* Parse this packet into an object */
@@ -1044,6 +1053,7 @@ public class DynamoServer implements NotificationListener {
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println("from " + msg.srcNode.name);
                         boolean status;
                         ArrayList<ObjectIOModel> list = null;
                         String bucketName = null;
@@ -1242,11 +1252,10 @@ public class DynamoServer implements NotificationListener {
             int success = 0;
             System.out.println(">> ACK: quorum init: " + numReplicas + " receives init : " + receives);
             while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("AckGhot");
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] Acknowledgement received ");
                 try {
                     this.ackServer.receive(p);
                     /* Parse this packet into an object */
@@ -1255,9 +1264,11 @@ public class DynamoServer implements NotificationListener {
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         // TODO: Update method to manage successful receives vs. no. of receives
+                        DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println("from " + msg.srcNode.name);
+
                         receives++;
                         System.out.println(">> ACK: quorum: " + numReplicas + " receives: " + receives);
-                        DynamoMessage msg = (DynamoMessage) readObject;
                         AckPayload payload = (AckPayload) msg.payload;
 //                        this.status.set(this.status.get() & (payload.isStatus()));
                         if (payload.isStatus()) {
