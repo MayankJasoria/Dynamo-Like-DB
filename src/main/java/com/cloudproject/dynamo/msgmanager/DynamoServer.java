@@ -861,9 +861,8 @@ public class DynamoServer implements NotificationListener {
 
         public void run() {
             while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("ghot");
                 /* init a buffer where the packet will be placed */
+                System.out.print("[Dynamo Server] GOSSIP received");
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
                 try {
@@ -878,14 +877,12 @@ public class DynamoServer implements NotificationListener {
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         DynamoMessage msg = (DynamoMessage) readObject;
-                        boolean status;
-                        String bucketName = null;
-                        Pair<String, ObjectInputModel> obj = null;
                         switch (msg.type) {
                             case PING:
-                                System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
+                                System.out.print("[Dynamo Server] PING received from " + msg.srcNode.name);
                                 break;
                             case NODE_LIST:
+                                System.out.println(" from " + msg.srcNode.name);
                                 DynamoServer.this.mergeMembershipLists(msg.srcNode, msg.payload);
                                 break;
                             default:
@@ -1028,11 +1025,10 @@ public class DynamoServer implements NotificationListener {
 
         public void run() {
             while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("ioGhot");
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] IO Request Received from ");
                 try {
                     DynamoServer.this.ioServer.receive(p);
                     /* Parse this packet into an object */
@@ -1041,6 +1037,7 @@ public class DynamoServer implements NotificationListener {
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println(msg.srcNode.name);
                         boolean status;
                         ArrayList<ObjectIOModel> list = null;
                         String bucketName = null;
@@ -1220,7 +1217,7 @@ public class DynamoServer implements NotificationListener {
 
         private final DynamoNode destNode;
 
-        public Rehash(DynamoNode destNode) {
+        Rehash(DynamoNode destNode) {
             this.destNode = destNode;
         }
 
@@ -1270,11 +1267,10 @@ public class DynamoServer implements NotificationListener {
             int success = 0;
             System.out.println(">> ACK: quorum init: " + numReplicas + " receives init : " + receives);
             while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("AckGhot");
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] Acknowledgement received from ");
                 try {
                     this.ackServer.receive(p);
                     /* Parse this packet into an object */
@@ -1286,6 +1282,7 @@ public class DynamoServer implements NotificationListener {
                         receives++;
                         System.out.println(">> ACK: quorum: " + numReplicas + " receives: " + receives);
                         DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println(msg.srcNode.name);
                         AckPayload payload = (AckPayload) msg.payload;
 //                        this.status.set(this.status.get() & (payload.isStatus()));
                         if (payload.isStatus()) {
@@ -1377,10 +1374,10 @@ public class DynamoServer implements NotificationListener {
             System.out.println(">> READ RECEIVE: quorum init: " + quorum + " receives init : " + receives);
             while (keepRunning.get()) {
                 /* Logic for receiving */
-                System.out.println("ReadReceiveGhot");
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] Read packet received from ");
                 try {
                     this.readServer.receive(p);
                     /* Parse this packet into an object */
@@ -1388,9 +1385,10 @@ public class DynamoServer implements NotificationListener {
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
+                        DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println(msg.srcNode.name);
                         receives++;
                         System.out.println(">> READ RECEIVE: quorum: " + quorum + " receives: " + receives);
-                        DynamoMessage msg = (DynamoMessage) readObject;
                         ObjectIOModel payload = (ObjectIOModel) msg.payload;
                         if (payload != null && !payload.getValue().isEmpty()) {
                             success++;
