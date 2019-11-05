@@ -78,6 +78,7 @@ public class DynamoServer implements NotificationListener {
         this.server = new DatagramSocket(port);
         this.ioServer = new DatagramSocket(this.ioPort);
         System.out.println("[Dynamo Server] Listening at port: " + port);
+        initializeHashingManager(new CityHash());
     }
 
     @Override
@@ -443,7 +444,7 @@ public class DynamoServer implements NotificationListener {
         try {
             Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
             sendRequestToRandNode(new ForwardPayload(messageType, bucketName, inputObject, 2));
-            future.get(20, TimeUnit.SECONDS);
+            future.get(10, TimeUnit.SECONDS);
             /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
              *  it is occupying a port and CPU time without any reason.
              */
@@ -1207,7 +1208,10 @@ public class DynamoServer implements NotificationListener {
                                         assert hashNodes != null;
                                         list = readRecord(payload.getBucketName(),
                                                 String.valueOf(payload.getInputModel()), hashNodes);
-                                        status = true;  /* TODO: temp */
+//                                        if (list.size() < Quorum.getReadQuorum()) {
+//                                            status = false;
+//                                        }
+                                        status = true;  /* TODO: [TEMP DONE]  temp */
                                         break;
                                     default:
                                         System.out.println(">> Unknown request forwarded!");
@@ -1497,14 +1501,20 @@ public class DynamoServer implements NotificationListener {
                         case FORWARD_ACK_READ:
                             ArrayList<ObjectIOModel> list =
                                     (ArrayList<ObjectIOModel>) msg.payload;
-                            StringBuilder str = new StringBuilder();
-                            /* iterate list and append to output string */
-                            for (ObjectIOModel oim : list) {
-                                str.append("<value: ").append(oim.getValue())
-                                        .append(" version: ").append(oim.getVersion()).append("> ");
+                            if (list.size() < Quorum.getReadQuorum()) {
+                                outputModel.setResponse("Read quorum failed");
+                                outputModel.setStatus(false);
+                            } else {
+                                StringBuilder str = new StringBuilder();
+                                /* iterate list and append to output string */
+                                for (ObjectIOModel oim : list) {
+                                    str.append("<value: ").append(oim.getValue())
+                                            .append(" version: ").append(oim.getVersion()).append("> ");
+                                }
+                                outputModel.setResponse(str.toString());
+                                outputModel.setStatus(true);
                             }
-                            outputModel.setResponse(str.toString());
-                            outputModel.setStatus(true);
+
                             break;
                         default:
                             System.out.println("Unrecognized Ack");
