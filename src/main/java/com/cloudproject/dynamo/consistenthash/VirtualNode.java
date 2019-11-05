@@ -7,7 +7,7 @@ public class VirtualNode<T extends Node> implements Node {
     private final T physicalNode;
     private final int replicaIndex;
 
-    public VirtualNode(T physicalNode, int replicaIndex) {
+    VirtualNode(T physicalNode, int replicaIndex) {
         this.physicalNode = physicalNode;
         this.replicaIndex = replicaIndex;
     }
@@ -24,7 +24,7 @@ public class VirtualNode<T extends Node> implements Node {
      * @param pNode An instance of the physical node
      * @return true if this is a virtual node of pNode, false otherwise
      */
-    public boolean isVirtualNodeOf(T pNode) {
+    boolean isVirtualNodeOf(T pNode) {
         return physicalNode.getAddress().equals(pNode.getAddress());
     }
 
@@ -33,7 +33,16 @@ public class VirtualNode<T extends Node> implements Node {
      *
      * @return The physical node of this virtual node
      */
-    public T getPhysicalNode() {
+    T getPhysicalNode() {
         return physicalNode;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj instanceof VirtualNode<?>) {
+            return this.getAddress().equals(((VirtualNode<?>) obj).getAddress());
+        } else {
+            return false;
+        }
     }
 }
