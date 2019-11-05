@@ -884,11 +884,14 @@ public class DynamoServer implements NotificationListener {
         }
 
         public void run() {
+
+            System.out.println("[Dynamo Server] Gossip Receiver started");
+
             while (keepRunning.get()) {
                 /* init a buffer where the packet will be placed */
-                System.out.print("[Dynamo Server] GOSSIP received");
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] GOSSIP received");
                 try {
                     DynamoServer.this.server.receive(p);
                     /* Parse this packet into an object */
@@ -1048,11 +1051,14 @@ public class DynamoServer implements NotificationListener {
         }
 
         public void run() {
+
+            System.out.println("[Dynamo Server] IO receiver started");
+
             while (keepRunning.get()) {
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
-                System.out.print("[Dynamo Server] IO Request Received from ");
+                System.out.print("[Dynamo Server] IO Request received");
                 try {
                     DynamoServer.this.ioServer.receive(p);
                     /* Parse this packet into an object */
@@ -1061,6 +1067,7 @@ public class DynamoServer implements NotificationListener {
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println(" from " + msg.srcNode.name);
                         System.out.println(msg.srcNode.name);
                         boolean status;
                         ArrayList<ObjectIOModel> list = null;
@@ -1294,7 +1301,7 @@ public class DynamoServer implements NotificationListener {
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
-                System.out.print("[Dynamo Server] Acknowledgement received from ");
+                System.out.print("[Dynamo Server] Acknowledgement received ");
                 try {
                     this.ackServer.receive(p);
                     /* Parse this packet into an object */
@@ -1306,7 +1313,7 @@ public class DynamoServer implements NotificationListener {
                         receives++;
                         System.out.println(">> ACK: quorum: " + numReplicas + " receives: " + receives);
                         DynamoMessage msg = (DynamoMessage) readObject;
-                        System.out.println(msg.srcNode.name);
+                        System.out.println(" from " + msg.srcNode.name);
                         AckPayload payload = (AckPayload) msg.payload;
 //                        this.status.set(this.status.get() & (payload.isStatus()));
                         if (payload.isStatus()) {
@@ -1402,7 +1409,7 @@ public class DynamoServer implements NotificationListener {
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
-                System.out.print("[Dynamo Server] Read packet received from ");
+                System.out.print("[Dynamo Server] Read packet received");
                 try {
                     this.readServer.receive(p);
                     /* Parse this packet into an object */
@@ -1411,7 +1418,7 @@ public class DynamoServer implements NotificationListener {
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         DynamoMessage msg = (DynamoMessage) readObject;
-                        System.out.println(msg.srcNode.name);
+                        System.out.println(" from " + msg.srcNode.name);
                         receives++;
                         System.out.println(">> READ RECEIVE: quorum: " + quorum + " receives: " + receives);
                         ObjectIOModel payload = (ObjectIOModel) msg.payload;
