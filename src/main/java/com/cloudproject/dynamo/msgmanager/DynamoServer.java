@@ -605,11 +605,10 @@ public class DynamoServer implements NotificationListener {
     private boolean addRecord(String bucket, ObjectInputModel inputModel, ArrayList<DynamoNode> hashNodes) {
         AtomicBoolean success = new AtomicBoolean(true);
         success.set(createFile(bucket, inputModel.getKey(), inputModel.getValue(), true));
-        hashNodes.remove(this.node);
-
 
         // send requests to all appropriate nodes and await response
-        if (hashNodes.size() > 0) {
+        if (hashNodes != null && hashNodes.size() > 0) {
+            hashNodes.remove(this.node);
             try {
                 System.out.println("Sending CREATE request to " + hashNodes.size() + " other nodes");
                 for (DynamoNode node : hashNodes) {
@@ -682,11 +681,10 @@ public class DynamoServer implements NotificationListener {
 
         // this node is one of the hash replicas, create object here
         success.set(updateFile(bucket, inputModel.getKey(), inputModel.getValue(), true));
-        hashNodes.remove(this.node);
-
 
         // send requests to all appropriate nodes and await response
-        if (hashNodes.size() > 0) {
+        if (hashNodes != null && hashNodes.size() > 0) {
+            hashNodes.remove(this.node);
             try {
                 System.out.println("Sending UPDATE request to " + hashNodes.size() + " other nodes");
                 for (DynamoNode node : hashNodes) {
@@ -728,6 +726,8 @@ public class DynamoServer implements NotificationListener {
         int readQuorum = Quorum.getReadQuorum();
         AtomicBoolean success = new AtomicBoolean(false);
 
+        ArrayList<ObjectIOModel> out = new ArrayList<>();
+
         if (isCoordinator(hashNodes)) {
             ObjectIOModel ioModel = readFile(bucket, key);
             if (ioModel != null && !ioModel.getValue().isEmpty()) {
@@ -735,8 +735,6 @@ public class DynamoServer implements NotificationListener {
                 readQuorum--;
             }
         }
-
-        ArrayList<ObjectIOModel> out = new ArrayList<>();
 
         try {
             ReadReceiver readThread = new ReadReceiver(hashNodes.size(), readQuorum, out, success);
