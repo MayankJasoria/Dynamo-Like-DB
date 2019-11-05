@@ -78,7 +78,9 @@ public class DynamoServer implements NotificationListener {
         this.server = new DatagramSocket(port);
         this.ioServer = new DatagramSocket(this.ioPort);
         System.out.println("[Dynamo Server] Listening at port: " + port);
-        initializeHashingManager(new CityHash());
+        if (!this.node.isApiNode()) {
+            initializeHashingManager(new CityHash());
+        }
     }
 
     @Override
