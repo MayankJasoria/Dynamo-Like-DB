@@ -1360,10 +1360,10 @@ public class DynamoServer implements NotificationListener {
             System.out.println(">> READ RECEIVE: quorum init: " + quorum + " receives init : " + receives);
             while (keepRunning.get()) {
                 /* Logic for receiving */
-                System.out.println("ReadReceiveGhot");
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] Read receive request received ");
                 try {
                     this.readServer.receive(p);
                     /* Parse this packet into an object */
@@ -1371,9 +1371,12 @@ public class DynamoServer implements NotificationListener {
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
+                        DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println("from " + msg.srcNode.name);
+
                         receives++;
                         System.out.println(">> READ RECEIVE: quorum: " + quorum + " receives: " + receives);
-                        DynamoMessage msg = (DynamoMessage) readObject;
+
                         ObjectIOModel payload = (ObjectIOModel) msg.payload;
                         if (payload != null && !payload.getValue().isEmpty()) {
                             success++;
