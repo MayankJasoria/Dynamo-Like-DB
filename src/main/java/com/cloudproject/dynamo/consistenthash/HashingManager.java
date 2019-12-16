@@ -103,12 +103,15 @@ public class HashingManager<T extends Node> {
         int i = 0;
 
         Long nodeHash = (!tailMap.isEmpty()) ? tailMap.firstKey() : ring.firstKey();
+        VirtualNode<T> firstNode = ring.get(nodeHash);
         while (i < Quorum.getReplicas()) {
             VirtualNode<T> node = ring.get(nodeHash);
             if (!nodesList.contains(node.getPhysicalNode())) {
                 // if physical node was not already added, add it
                 nodesList.add(node.getPhysicalNode());
                 i++;
+            } else if (node == firstNode) {
+                break;
             }
 
             // get key for next node; loop around if higherKey does not exist

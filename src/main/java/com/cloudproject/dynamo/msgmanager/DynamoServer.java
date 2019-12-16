@@ -444,9 +444,12 @@ public class DynamoServer implements NotificationListener {
             Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
             sendRequestToRandNode(new ForwardPayload(messageType, bucketName, inputObject, 2));
             future.get(20, TimeUnit.SECONDS);
-            /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+            /* TODO: [temp done]Since we will not be using the Receiver for randNode, kill the thread,
              *  it is occupying a port and CPU time without any reason.
              */
+            if (!future.isDone()) {
+                future.cancel(true);
+            }
             // outputModel contains status, read status and set message
             switch (messageType) {
                 case OBJECT_CREATE:
@@ -521,9 +524,13 @@ public class DynamoServer implements NotificationListener {
 
             // wait for thread termination
             future.get(20, TimeUnit.SECONDS);
-            /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+            /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
              *  it is occupying a port and CPU time without any reason.
              */
+            if (!future.isDone()) {
+                future.cancel(true);
+                success.set(false);
+            }
         } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
             success.set(false);
             e.printStackTrace();
@@ -563,9 +570,13 @@ public class DynamoServer implements NotificationListener {
 
             // wait for thread termination
             future.get(20, TimeUnit.SECONDS);
-            /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+            /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
              *  it is occupying a port and CPU time without any reason.
              */
+            if (!future.isDone()) {
+                future.cancel(true);
+                success.set(false);
+            }
         } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
             success.set(false);
             e.printStackTrace();
@@ -624,9 +635,13 @@ public class DynamoServer implements NotificationListener {
 
                 // wait for thread termination
                 future.get(10, TimeUnit.SECONDS);
-                /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+                /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
                  *  it is occupying a port and CPU time without any reason.
                  */
+                if (!future.isDone()) {
+                    future.cancel(true);
+                    success.set(false);
+                }
             } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
                 success.set(false);
                 e.printStackTrace();
@@ -701,9 +716,13 @@ public class DynamoServer implements NotificationListener {
 
                 // wait for thread termination
                 future.get(10, TimeUnit.SECONDS);
-                /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+                /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
                  *  it is occupying a port and CPU time without any reason.
                  */
+                if (!future.isDone()) {
+                    future.cancel(true);
+                    success.set(false);
+                }
             } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
                 success.set(false);
                 e.printStackTrace();
@@ -747,10 +766,13 @@ public class DynamoServer implements NotificationListener {
 
             // wait for thread termination
             future.get(10, TimeUnit.SECONDS);
-            /* TODO: Since we will not be using the Receiver for randNode, kill the thread,
+            /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
              *  it is occupying a port and CPU time without any reason.
              */
-
+            if (!future.isDone()) {
+                future.cancel(true);
+                success.set(false);
+            }
 
         } catch (SocketException | InterruptedException | TimeoutException | ExecutionException e) {
             e.printStackTrace();
@@ -1333,6 +1355,7 @@ public class DynamoServer implements NotificationListener {
             if (!this.ackServer.isClosed()) {
                 this.ackServer.close();
             }
+            this.keepRunning.set(false);
         }
     }
 
@@ -1412,6 +1435,7 @@ public class DynamoServer implements NotificationListener {
             if (!this.readServer.isClosed()) {
                 this.readServer.close();
             }
+            this.keepRunning.set(false);
         }
     }
 

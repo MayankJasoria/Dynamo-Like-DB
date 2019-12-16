@@ -27,6 +27,11 @@ public class AppConfig extends ResourceConfig {
         packages("com.cloudproject.dynamo.controller");
     }
 
+    /**
+     * Method to return the static instance of the JSON Parser
+     *
+     * @return an instance of {@link Genson} JSON Parser
+     */
     public static Genson getParser() {
         if (genson == null) {
             genson = new GensonBuilder().setSkipNull(true).create();

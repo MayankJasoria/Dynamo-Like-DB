@@ -133,8 +133,8 @@ public class Home {
     private void startDynamoServer() throws SocketException {
         if (dynamoServer == null) {
             dynamoServer = DynamoServer.startServer("REST-Host",
-                    "172.17.73.158:9350", "2000", "20000", "true",
-                    "172.17.200.222:9350,172.17.200.223:9350");
+                    "192.168.43.38:9350", "2000", "20000", "true",
+                    "172.17.200.222:9350");
         }
     }
 }
