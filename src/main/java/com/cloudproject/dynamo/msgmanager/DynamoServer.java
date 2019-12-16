@@ -23,6 +23,18 @@ import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Class DynamoServer. Handles communication with other nodes:
+ * 1. Identifies other nodes in the network and makes itself visible to other nodes in the network
+ *    through Gossip protocol.
+ * 2. Capable of running either in the API mode or a standard Dynamo node.
+ *     - While in API mode, receives requests from the REST API and forwards the request to a
+ *       standard dynamo node.
+ *     - While in the standard Dynamo server mode, receives requests from either the API node or
+ *       other nodes in the network, parses them and translates them into
+ *       actions (for example - writing to disk, updating node lists or forwarding messages to other nodes)
+ */
+
 public class DynamoServer implements NotificationListener {
 
     private final ArrayList<DynamoNode> nodeList;
@@ -40,6 +52,17 @@ public class DynamoServer implements NotificationListener {
     private HashingManager<DynamoNode> hashingManager;
     private int ackPort;
     private int ioPort;
+
+    /**
+     *
+     * @param name Name with which the node will be advertised on the network.
+     * @param address IP address of the node to be advertised on the network.
+     * @param gossipInt Time interval (in seconds) between sending of two gossip messages to all nodes in the list.
+     * @param ttl Time To Live: Time (in seconds) after which each entry in the node list is moved to the dead node list.
+     * @param addr_list Comma separated list of ip address of other nodes in the network. Node list is initialized with these nodes.
+     * @param apiNode True if the node is to be run as an API node. False to run as a standard Dynamo node.
+     * @throws SocketException If there is an error while creating socket.
+     */
 
     private DynamoServer(String name, String address, int gossipInt, int ttl,
                          @Nullable ArrayList<String> addr_list, boolean apiNode) throws SocketException {
