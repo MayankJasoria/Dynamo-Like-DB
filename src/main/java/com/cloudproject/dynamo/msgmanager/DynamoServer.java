@@ -166,6 +166,13 @@ public class DynamoServer implements NotificationListener {
         System.out.println("+------------------+");
     }
 
+    /**
+     *
+     * @param node Instance of the DynamoNode to send the message to.
+     * @param msg The message to send.
+     * @throws IOException if there is an error while sending through the datagram socket.
+     */
+
     private void sendMessage(DynamoNode node, DynamoMessage msg) throws IOException {
         //vclock
 //        JVec jv=new JVec(DynamoServer.this.node);
@@ -203,6 +210,8 @@ public class DynamoServer implements NotificationListener {
     /**
      * Method to get a random node except API gateway
      *
+     * @param excludeAPIgateway True if the API node is to be excluded from the list of nodes that can be
+     *                          randomly selected. False, if it should be included.
      * @return instance of a random node from nodeList
      */
     private DynamoNode getRandomNode(boolean excludeAPIgateway) {
@@ -228,7 +237,13 @@ public class DynamoServer implements NotificationListener {
         return node;
     }
 
-    private void sendMembershipList() throws IOException {
+    /**
+     * Sends current node list to a random member in the node list.
+     *
+     * @throws IOException
+     */
+
+    private void sendNodeList() throws IOException {
         this.node.setHeartbeat(this.node.getHeartbeat() + 1);
         File file = new File(this.node.name + ".log");
         FileUtils.write(file, Integer.toString(this.node.getHeartbeat()), Charset.defaultCharset(), false);
@@ -243,8 +258,14 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
+    /**
+     * Merges the local and the remote node list.
+     *
+     * @param srcNode The node from which the remote list was received.
+     * @param payload Remote node list
+     */
 
-    private void mergeMembershipLists(DynamoNode srcNode, Object payload) {
+    private void mergeNodeLists(DynamoNode srcNode, Object payload) {
         if (payload instanceof ArrayList<?>) {
             ArrayList<DynamoNode> remoteNodesList = (ArrayList<DynamoNode>) payload;
             /* add srcNode to list too, since it has sent, so should be alive ! */
@@ -950,7 +971,7 @@ public class DynamoServer implements NotificationListener {
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
                                 break;
                             case NODE_LIST:
-                                DynamoServer.this.mergeMembershipLists(msg.srcNode, msg.payload);
+                                DynamoServer.this.mergeNodeLists(msg.srcNode, msg.payload);
                                 break;
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
@@ -1017,7 +1038,7 @@ public class DynamoServer implements NotificationListener {
             while (this.keepRunning.get()) {
                 try {
                     TimeUnit.MILLISECONDS.sleep(DynamoServer.this.gossipInt);
-                    DynamoServer.this.sendMembershipList();
+                    DynamoServer.this.sendNodeList();
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                     this.keepRunning.set(false);
