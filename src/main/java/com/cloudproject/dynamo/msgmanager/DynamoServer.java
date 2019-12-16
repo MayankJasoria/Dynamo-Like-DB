@@ -23,6 +23,18 @@ import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+/**
+ * Class DynamoServer. Handles communication with other nodes:
+ * 1. Identifies other nodes in the network and makes itself visible to other nodes in the network
+ *    through Gossip protocol.
+ * 2. Capable of running either in the API mode or a standard Dynamo node.
+ *     - While in API mode, receives requests from the REST API and forwards the request to a
+ *       standard dynamo node.
+ *     - While in the standard Dynamo server mode, receives requests from either the API node or
+ *       other nodes in the network, parses them and translates them into
+ *       actions (for example - writing to disk, updating node lists or forwarding messages to other nodes)
+ */
+
 public class DynamoServer implements NotificationListener {
 
     private final ArrayList<DynamoNode> nodeList;
@@ -40,6 +52,17 @@ public class DynamoServer implements NotificationListener {
     private HashingManager<DynamoNode> hashingManager;
     private int ackPort;
     private int ioPort;
+
+    /**
+     *
+     * @param name  Name with which the node will be advertised on the network
+     * @param address
+     * @param gossipInt
+     * @param ttl
+     * @param addr_list
+     * @param apiNode
+     * @throws SocketException
+     */
 
     private DynamoServer(String name, String address, int gossipInt, int ttl,
                          @Nullable ArrayList<String> addr_list, boolean apiNode) throws SocketException {
