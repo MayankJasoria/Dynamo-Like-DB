@@ -2,6 +2,9 @@ package com.cloudproject.dynamo.models;
 
 import java.io.Serializable;
 
+/**
+ * POJO for holding the payload associated with acknowledgement responses
+ */
 public class AckPayload implements Serializable {
     private MessageTypes requestType;
     private String identifier;
@@ -34,12 +37,17 @@ public class AckPayload implements Serializable {
 
     /**
      * Method to return the transaction ID of the request [not currently in use]
-     * @return
+     * @return transaction id of the request
      */
     public long getTxnID() {
         return txnID;
     }
 
+    /**
+     * Method to return the status of the request
+     *
+     * @return true if the request was successful, falso otherwise
+     */
     public boolean isStatus() {
         return status;
     }

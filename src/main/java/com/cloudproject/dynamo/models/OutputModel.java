@@ -9,7 +9,6 @@ import java.io.Serializable;
 public class OutputModel implements Serializable {
 
     private String response;
-
     private boolean status;
 
     public boolean isStatus() {
