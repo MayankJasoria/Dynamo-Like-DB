@@ -137,6 +137,11 @@ public class HashingManager<T extends Node> {
         return replicas;
     }
 
+    /**
+     * Method to return an instance of a lock associated with this object
+     *
+     * @return instance of the lock
+     */
     public Object getLock() {
         return lock;
     }

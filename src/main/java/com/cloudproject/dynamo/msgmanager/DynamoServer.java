@@ -130,6 +130,9 @@ public class DynamoServer implements NotificationListener {
 //        }
     }
 
+    /**
+     * Method to print the active node list as known to the node in which this method is executed
+     */
     private void printNodeList() {
         System.out.println("+------------------+");
         System.out.println("| Active node list |");
@@ -217,7 +220,7 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
-    @SuppressWarnings("unchecked")
+
     private void mergeMembershipLists(DynamoNode srcNode, Object payload) {
         if (payload instanceof ArrayList<?>) {
             ArrayList<DynamoNode> remoteNodesList = (ArrayList<DynamoNode>) payload;
@@ -306,11 +309,11 @@ public class DynamoServer implements NotificationListener {
 //    }
 
     /**
-     * Method to start the dynamo server
+     * Method to start the dynamo server using appropriate command line arguments
      *
      * @param args command line arguments related to the server
      * @return instance of DynamoServer
-     * @throws SocketException
+     * @throws SocketException may sometimes occur
      */
     public static DynamoServer startServer(String... args) throws SocketException {
         if (selfServer == null) {
@@ -692,6 +695,14 @@ public class DynamoServer implements NotificationListener {
         return success.get();
     }
 
+    /**
+     * Method to update a record in the database
+     *
+     * @param bucket     Name of the bucket which contains the record
+     * @param inputModel POJO containing the key of the record and the associated new value
+     * @param hashNodes  List of nodes into which the record is hashed
+     * @return true if the updation was successful, false otherwise
+     */
     private boolean updateRecord(String bucket, ObjectInputModel inputModel, ArrayList<DynamoNode> hashNodes) {
         AtomicBoolean success = new AtomicBoolean(true);
 
