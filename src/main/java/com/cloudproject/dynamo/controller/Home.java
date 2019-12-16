@@ -1,6 +1,7 @@
 package com.cloudproject.dynamo.controller;
 
 import com.cloudproject.dynamo.models.BucketInputModel;
+import com.cloudproject.dynamo.models.MessageTypes;
 import com.cloudproject.dynamo.models.ObjectInputModel;
 import com.cloudproject.dynamo.models.OutputModel;
 import com.cloudproject.dynamo.msgmanager.DynamoServer;
@@ -19,7 +20,7 @@ public class Home {
      *
      * @param args array of String, may be used for debugging
      */
-    public static void main(String[] args) throws SocketException, InterruptedException {
+    public static void main(String[] args) throws SocketException {
         dynamoServer = DynamoServer.startServer(args);
     }
 
@@ -35,59 +36,105 @@ public class Home {
      * @return the String "Hello World!
      */
     @GET
-    @Path("test")
-    public String helloWorld() {
-        return "Hello World!";
+    @Path("start")
+    public String start() throws SocketException {
+        startDynamoServer();
+        return "REST server started successfully!";
+    }
+
+    @GET
+    @Path("shutdown")
+    public OutputModel shutdown() {
+        OutputModel outputModel = new OutputModel();
+        dynamoServer.shutdownDynamoServer(outputModel);
+        dynamoServer = null;
+        return outputModel;
     }
 
     @POST
-    @Path("Bucket")
+    @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel createBucket(BucketInputModel inputModel) {
-        // TODO: Create a folder in each node
+    public OutputModel createBucket(BucketInputModel inputModel) throws SocketException {
         OutputModel outputModel = new OutputModel();
-        dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
-
+        startDynamoServer();
+//        dynamoServer.createBucket(inputModel.getBucketName(), outputModel);
+        dynamoServer.forwardToRandNode(MessageTypes.BUCKET_CREATE, inputModel.getBucketName(), outputModel);
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " created successfully");
         return outputModel;
     }
 
     @DELETE
-    @Path("Bucket")
+    @Path("bucket")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel deleteBucket(BucketInputModel inputModel) {
-        // TODO: Delete the required folder from each node (along with all its data)
+    public OutputModel deleteBucket(BucketInputModel inputModel) throws SocketException {
         OutputModel outputModel = new OutputModel();
+        startDynamoServer();
 //        bucketOutputModel.setResponse("Bucket " + inputModel.getBucketName() + " deleted successfully");
+        dynamoServer.forwardToRandNode(MessageTypes.BUCKET_DELETE, inputModel.getBucketName(), outputModel);
+
         return outputModel;
     }
 
     @POST
-    @Path("{bucketname}")
+    @Path("{bucketName}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel createObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
-        // TODO: Create the new object (file) in the required nodes
-        return null;
+    public OutputModel createObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName) throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_CREATE, bucketName, inputModel, outputModel);
+
+        return outputModel;
     }
 
     @PUT
-    @Path("{bucketname}")
+    @Path("{bucketName}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
-        // TODO: replace old file with new file in each node for requested object
-        return null;
+    public OutputModel updateObject(ObjectInputModel inputModel, @PathParam("bucketName") String bucketName)
+            throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_UPDATE, bucketName, inputModel, outputModel);
+
+        return outputModel;
     }
 
     @DELETE
-    @Path("{bucketname}")
-    @Consumes(MediaType.APPLICATION_JSON)
+    @Path("{bucketName}/{objectKey}")
     @Produces(MediaType.APPLICATION_JSON)
-    public OutputModel deleteObject(ObjectInputModel inputModel, @PathParam("bucketname") String bucketName) {
-        // TODO: delete the required object (file) from each node where requried
-        return null;
+    public OutputModel deleteObject(@PathParam("bucketName") String bucketName,
+                                    @PathParam("objectKey") String key) throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_DELETE, bucketName, key, outputModel);
+
+        return outputModel;
+    }
+
+    @GET
+    @Path("{bucketName}/{objectKey}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public OutputModel readObject(@PathParam("bucketName") String bucketName,
+                                  @PathParam("objectKey") String objectKey) throws SocketException {
+        OutputModel outputModel = new OutputModel();
+        startDynamoServer();
+
+        dynamoServer.forwardToRandNode(MessageTypes.OBJECT_READ, bucketName, objectKey, outputModel);
+
+        return outputModel;
+    }
+
+    private void startDynamoServer() throws SocketException {
+        if (dynamoServer == null) {
+            dynamoServer = DynamoServer.startServer("REST-Host",
+                    "192.168.43.38:9350", "2000", "20000", "true",
+                    "172.17.200.222:9350");
+        }
     }
 }

@@ -1,10 +1,10 @@
 package com.cloudproject.dynamo.msgmanager;
 
+import com.cloudproject.dynamo.config.AppConfig;
 import com.cloudproject.dynamo.consistenthash.CityHash;
 import com.cloudproject.dynamo.consistenthash.HashFunction;
 import com.cloudproject.dynamo.consistenthash.HashingManager;
-import com.cloudproject.dynamo.models.ObjectInputModel;
-import com.cloudproject.dynamo.models.OutputModel;
+import com.cloudproject.dynamo.models.*;
 import javafx.util.Pair;
 import org.apache.commons.io.FileUtils;
 import org.jetbrains.annotations.Nullable;
@@ -20,9 +20,7 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Random;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DynamoServer implements NotificationListener {
@@ -32,31 +30,32 @@ public class DynamoServer implements NotificationListener {
 
     private static DynamoServer selfServer;
 
-    private ExecutorService executorService;
-    private DatagramSocket server;
-    private DatagramSocket ioServer;
-    private String address;
-    private DynamoNode node;
-    private Random random;
+    private final ExecutorService executorService;
+    private final DatagramSocket server;
+    private final DatagramSocket ioServer;
+    private final DynamoNode node;
+    private final Random random;
     private int gossipInt;
     private int ttl;
     private HashingManager<DynamoNode> hashingManager;
-    private int backups;
-    private int vNodeCount;
     private int ackPort;
     private int ioPort;
 
-    private DynamoServer(String name, String address, int gossipInt, int ttl, int vNodeCount,
-                         @Nullable ArrayList<String> addr_list, int backups) throws SocketException {
+    private DynamoServer(String name, String address, int gossipInt, int ttl,
+                         @Nullable ArrayList<String> addr_list, boolean apiNode) throws SocketException {
 
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
-                DynamoServer.this.server.close();
+                if (!DynamoServer.this.server.isClosed()) {
+                    DynamoServer.this.server.close();
+                }
+                if (!DynamoServer.this.ioServer.isClosed()) {
+                    DynamoServer.this.ioServer.close();
+                }
                 System.out.println("Goodbye my friends...");
             }
         }));
 
-        this.address = address;
         this.ackPort = 9720;
         this.ioPort = 9700;
         this.nodeList = new ArrayList<>();
@@ -66,15 +65,12 @@ public class DynamoServer implements NotificationListener {
         this.ttl = ttl;
         if (addr_list != null) {
             for (String addr : addr_list) {
-            	//vclock
-                this.nodeList.add(new DynamoNode(name, addr, this, 0, ttl));
+                this.nodeList.add(new DynamoNode(null, addr, this, 0, ttl, false));
             }
         }
-        this.node = new DynamoNode(name, address, this,0, ttl);
-        int port = Integer.parseInt(address.split(":")[1]);
 
-        this.backups = (backups > 0) ? backups : 2;
-        this.vNodeCount = vNodeCount;
+        this.node = new DynamoNode(name, address, this, 0, ttl, apiNode);
+        int port = Integer.parseInt(address.split(":")[1]);
 
         /* init Random */
         this.random = new Random();
@@ -101,28 +97,37 @@ public class DynamoServer implements NotificationListener {
                 hashingManager.removeNode(deadNode);
             }
         }
-        //vclock
-        DynamoServer.this.node.getVc().remove(deadNode.name);
+
         this.printNodeList();
     }
 
-    private void start() throws InterruptedException {
+    private void start() {
 
         for (DynamoNode localNode : this.nodeList) {
             if (localNode != this.node) {
                 localNode.startTimer();
             }
         }
+        /* read logs, update heartbeat from previous session */
+        File file = new File(this.node.name + ".log");
+        if (file.exists()) {
+            try {
+                int log_hb = Integer.parseInt(FileUtils.readFileToString(file, Charset.defaultCharset()));
+                this.node.setHeartbeat(log_hb);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
 
-        this.executorService.execute(new MessageReceiver());
         //exec.execute(new PingSender());
+        this.executorService.execute(new GossipReceiver());
         this.executorService.execute(new Gossiper());
         this.executorService.execute(new ioReceiver());
         this.printNodeList();
 
-        while (true) {
-            TimeUnit.SECONDS.sleep(10);
-        }
+//        while (true) {
+//            TimeUnit.SECONDS.sleep(2);
+//        }
     }
 
     private void printNodeList() {
@@ -137,34 +142,61 @@ public class DynamoServer implements NotificationListener {
 
     private void sendMessage(DynamoNode node, DynamoMessage msg) throws IOException {
         //vclock
-    	Vector jv=new Vector(DynamoServer.this.node);
-    	
-    	ByteArrayOutputStream baos = new ByteArrayOutputStream();
+//        JVec jv=new JVec(DynamoServer.this.node);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
         ObjectOutputStream oos = new ObjectOutputStream(baos);
         oos.writeObject(msg);
         byte[] buf = baos.toByteArray();
-        byte[] res=jv.prepareSend(buf);
+//        byte[] res=jv.prepareSend(buf);
         String address = node.getAddress();
         String host = address.split(":")[0];
-        int port = Integer.parseInt(address.split(":")[1]);
+        int port;
+        if (msg.type == MessageTypes.NODE_LIST) {
+            port = Integer.parseInt(address.split(":")[1]);
+        } else if (msg.type == MessageTypes.ACKNOWLEDGEMENT
+                | msg.type == MessageTypes.FORWARD_ACK
+                | msg.type == MessageTypes.FORWARD_ACK_READ) {
+            port = this.ackPort;
+        } else {
+            port = this.ioPort;
+        }
 
         InetAddress dest;
         dest = InetAddress.getByName(host);
 
-        System.out.println("[DynamoServer] Sending " + msg.type.name() + " (" + res.length + ") to " + dest.getHostAddress());
-        DynamoServer.this.node.getVc().printVC();
+        System.out.println("[DynamoServer] Sending " + msg.type.name() + " (" + buf.length + ") to " + dest.getHostAddress());
+//        System.out.println("[DynamoServer] Sending " + msg.type.name() + " (" + res.length + ") to " + dest.getHostAddress());
+
         DatagramSocket socket = new DatagramSocket();
-        DatagramPacket datagramPacket = new DatagramPacket(res, res.length, dest, port);
+        DatagramPacket datagramPacket = new DatagramPacket(buf, buf.length, dest, port);
+//        DatagramPacket datagramPacket = new DatagramPacket(res, res.length, dest, port);
         socket.send(datagramPacket);
         socket.close();
     }
 
-    private DynamoNode getRandomNode() {
+    /**
+     * Method to get a random node except API gateway
+     *
+     * @return instance of a random node from nodeList
+     */
+    private DynamoNode getRandomNode(boolean excludeAPIgateway) {
+
+        ArrayList<DynamoNode> randList = new ArrayList<>(nodeList);
+
+        if (excludeAPIgateway) {
+            for (DynamoNode node : randList) {
+                if (node.isApiNode()) {
+                    randList.remove(node);
+                    break;
+                }
+            }
+        }
+
         DynamoNode node = null;
 
-        if (this.nodeList.size() > 0) {
-            int rand = random.nextInt(this.nodeList.size());
-            node = this.nodeList.get(rand);
+        if (randList.size() > 0) {
+            int rand = random.nextInt(randList.size());
+            node = randList.get(rand);
         }
 
         return node;
@@ -172,13 +204,14 @@ public class DynamoServer implements NotificationListener {
 
     private void sendMembershipList() throws IOException {
         this.node.setHeartbeat(this.node.getHeartbeat() + 1);
+        File file = new File(this.node.name + ".log");
+        FileUtils.write(file, Integer.toString(this.node.getHeartbeat()), Charset.defaultCharset(), false);
         //ArrayList<DynamoNode> sendList = cloneArrayList(this.nodeList);
         synchronized (this.nodeList) {
-            DynamoNode dstNode = this.getRandomNode();
+            DynamoNode dstNode = this.getRandomNode(false);
             if (dstNode != null) {
                 DynamoMessage listMsg =
                         new DynamoMessage(this.node, MessageTypes.NODE_LIST, this.nodeList);
-               
                 this.sendMessage(dstNode, listMsg);
             }
         }
@@ -193,6 +226,13 @@ public class DynamoServer implements NotificationListener {
             synchronized (DynamoServer.this.deadList) {
                 synchronized (DynamoServer.this.nodeList) {
                     /* remove self from remoteNode list */
+//                    for (int i = 0; i < remoteNodesList.size(); i++) {
+//                        if(remoteNodesList.get(i).equals(DynamoServer.this.node)) {
+//                            remoteNodesList.remove(i);
+//                            i--;
+//                        }
+//                    }
+
                     remoteNodesList.remove(DynamoServer.this.node);
                      /* Do the same with rest of the nodes */
                     for (DynamoNode remoteNode : remoteNodesList) {
@@ -212,15 +252,18 @@ public class DynamoServer implements NotificationListener {
                                 /* The remoteNode previously was there in the local list
                                  * but timed out. So revive it!!
                                  * Updated heartbeat to the one received latest, and start timer*/
-                                DynamoNode localDeadNode = DynamoServer.this.deadList.get(DynamoServer.this.deadList.indexOf(remoteNode));
+                                DynamoNode localDeadNode =
+                                        DynamoServer.this.deadList.get(DynamoServer.this.deadList.indexOf(remoteNode));
                                 if (remoteNode.getHeartbeat() > localDeadNode.getHeartbeat()) {
                                     DynamoServer.this.deadList.remove(localDeadNode);
                                     DynamoNode newNode =
-                                            new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
+                                            new DynamoNode(remoteNode.name, remoteNode.getAddress(),
+                                                    this, remoteNode.getHeartbeat(),
+                                                    this.ttl, remoteNode.isApiNode());
                                     DynamoServer.this.nodeList.add(newNode);
 
-                                    if (hashingManager != null) {
-                                        hashingManager.addNode(newNode, vNodeCount);
+                                    if (hashingManager != null && !newNode.isApiNode()) {
+                                        hashingManager.addNode(newNode);
                                     }
 
                                     newNode.startTimer();
@@ -232,11 +275,12 @@ public class DynamoServer implements NotificationListener {
                                 /* Probably a new member, add it to the list, use remote heartbeat,
                                  * start timer */
                                 DynamoNode newNode =
-                                        new DynamoNode(remoteNode.name, remoteNode.getAddress(), this, remoteNode.getHeartbeat(), this.ttl);
+                                        new DynamoNode(remoteNode.name, remoteNode.getAddress(),
+                                                this, remoteNode.getHeartbeat(), this.ttl, remoteNode.isApiNode());
                                 DynamoServer.this.nodeList.add(newNode);
 
-                                if (hashingManager != null) {
-                                    hashingManager.addNode(newNode, vNodeCount);
+                                if (hashingManager != null && !newNode.isApiNode()) {
+                                    hashingManager.addNode(newNode);
                                 }
 
                                 newNode.startTimer();
@@ -261,31 +305,33 @@ public class DynamoServer implements NotificationListener {
 //        return newList;
 //    }
 
-    public static DynamoServer startServer(String[] args) throws SocketException, InterruptedException {
+    /**
+     * Method to start the dynamo server
+     *
+     * @param args command line arguments related to the server
+     * @return instance of DynamoServer
+     * @throws SocketException
+     */
+    public static DynamoServer startServer(String... args) throws SocketException {
         if (selfServer == null) {
             if (args == null) {
                 System.out.println("[ERROR] Arguments required");
             } else if (args.length < 5) {
                 System.out.println("[ERROR] Expected at least 5 arguments, received " + args.length);
             } else {
-                String[] hashParams = args[4].split(":");
-                //System.out.println("args[4]: " + args[4]);
-                int vNodeCount = Integer.parseInt(hashParams[0]);
-                int backups = 0;
-                if (hashParams.length == 2) {
-                    backups = Integer.parseInt(hashParams[1]);
-                }
                 if (args.length == 5) {
-                	
                     selfServer =
-                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, null, backups);
+                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]),
+                                    Integer.parseInt(args[3]), null,
+                                    Boolean.parseBoolean(args[4]));
                     selfServer.start();
                 } else if (args.length == 6) {
-                	
-                    ArrayList<String> addr_list = 
+                    ArrayList<String> addr_list =
                             new ArrayList<>(Arrays.asList(args[5].split(",")));
                     selfServer =
-                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]), Integer.parseInt(args[3]), vNodeCount, addr_list, backups);
+                            new DynamoServer(args[0], args[1], Integer.parseInt(args[2]),
+                                    Integer.parseInt(args[3]), addr_list,
+                                    Boolean.parseBoolean(args[4]));
                     selfServer.start();
                 } else {
                     System.out.println("[ERROR] Expected 5 or 6 arguments, received " + args.length);
@@ -293,6 +339,26 @@ public class DynamoServer implements NotificationListener {
             }
         }
         return selfServer;
+    }
+
+    /**
+     * Method to shut down the server
+     *
+     * @param outputModel POJO which contains the response message
+     */
+    public void shutdownDynamoServer(OutputModel outputModel) {
+        System.out.println("Forcing shutdown...");
+        System.out.println("Goodbye my friends...");
+        this.executorService.shutdownNow();
+        if (!DynamoServer.this.server.isClosed()) {
+            DynamoServer.this.server.close();
+        }
+        if (!DynamoServer.this.ioServer.isClosed()) {
+            DynamoServer.this.ioServer.close();
+        }
+        outputModel.setResponse("Server successfully shutdown");
+        outputModel.setStatus(true);
+        selfServer = null;
     }
 
     /**
@@ -308,52 +374,169 @@ public class DynamoServer implements NotificationListener {
     /**
      * Method to send a request to a set of specific nodes
      *
-     * @param messageType The type of mesage to be sent
-     * @param payload     The message payoad
-     * @param nodeList    List of nodes which will receive the message
+     * @param messageType The type of message to be sent
+     * @param payload     The message payload
+     * @param sendList    List of nodes which will receive the message
      */
-    private void sendRequests(MessageTypes messageType, Object payload, ArrayList<? extends DynamoNode> nodeList) {
-        this.executorService.execute(new MessageSender(messageType, payload, nodeList));
+    private void sendRequests(MessageTypes messageType, Object payload, ArrayList<DynamoNode> sendList) {
+        this.executorService.execute(new MessageSender(messageType, payload, sendList));
     }
 
     /**
      * Method to send a request to a specific node
      *
-     * @param messageTypes The type of message tp be sent
-     * @param payload      the message payload
-     * @param dynamoNode   The node to which the message to be sent
+     * @param payload the message payload
      */
-    private void sendRequest(MessageTypes messageTypes, Object payload, DynamoNode dynamoNode) {
-        ArrayList<DynamoNode> list = new ArrayList<>();
-        list.add(dynamoNode);
-        sendRequests(messageTypes, payload, list);
+    private void sendRequestToRandNode(Object payload)
+            throws IOException {
+//        ArrayList<DynamoNode> list = new ArrayList<>();
+//        list.add(dynamoNode);
+//        sendRequests(MessageTypes.FORWARD, payload, list);
+        this.sendMessage(getRandomNode(true),
+                new DynamoMessage(this.node, MessageTypes.FORWARD, payload));
     }
 
+    /**
+     * Method to forward Create/Delete operations of a bucket of the database
+     *
+     * @param messageType the type of operation to be performed
+     * @param bucketName the name of the bucket
+     * @param outputModel POJO which will return the response
+     */
+    public void forwardToRandNode(MessageTypes messageType, String bucketName, OutputModel outputModel) {
+        try {
+            Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
+            sendRequestToRandNode(new ForwardPayload(messageType, bucketName, null, 0));
+            future.get(20, TimeUnit.SECONDS);
+
+            // outputModel contains status, read status and set message
+            switch (messageType) {
+                case BUCKET_CREATE:
+                    outputModel.setResponse("Bucket " + bucketName +
+                            (outputModel.isStatus() ? " created successfully" : " creation failed"));
+                    break;
+                case BUCKET_DELETE:
+                    outputModel.setResponse("Bucket " + bucketName +
+                            (outputModel.isStatus() ? " deleted successfully" : " deletion failed"));
+                    break;
+            }
+
+        } catch (ExecutionException | InterruptedException | IOException e) {
+            outputModel.setStatus(false);
+            outputModel.setResponse(e.getMessage());
+        } catch (TimeoutException e) {
+            System.out.println(">> Response timeout! Use sloppy quorum!");
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Method to perform CRUD operations on objects of the database
+     *
+     * @param messageType THe type of operation to be performed
+     * @param bucketName  the name of the bucket in which the object resides
+     * @param inputObject POJO containing the key and value of the object
+     * @param outputModel POJO which will return the response
+     */
+    public void forwardToRandNode(MessageTypes messageType, String bucketName,
+                                  Object inputObject, OutputModel outputModel) {
+        try {
+            Future future = this.executorService.submit(new ReceiveFromRandNode(outputModel));
+            sendRequestToRandNode(new ForwardPayload(messageType, bucketName, inputObject, 2));
+            future.get(20, TimeUnit.SECONDS);
+            /* TODO: [temp done]Since we will not be using the Receiver for randNode, kill the thread,
+             *  it is occupying a port and CPU time without any reason.
+             */
+            if (!future.isDone()) {
+                future.cancel(true);
+            }
+            // outputModel contains status, read status and set message
+            switch (messageType) {
+                case OBJECT_CREATE:
+                    outputModel.setResponse("Record " +
+                            ((ObjectInputModel) inputObject).getKey() + " : " + ((ObjectInputModel) inputObject).getValue() +
+                            (outputModel.isStatus() ? " creation successfully" : " creation failed"));
+                    break;
+                case OBJECT_READ:
+                    // value should already be written
+                    break;
+                case OBJECT_UPDATE:
+                    outputModel.setResponse("Record " +
+                            ((ObjectInputModel) inputObject).getKey() + " : " + ((ObjectInputModel) inputObject).getValue() +
+                            (outputModel.isStatus() ? " updated successfully" : " update failed"));
+                    break;
+                case OBJECT_DELETE:
+                    outputModel.setResponse("Record " + inputObject +
+                            (outputModel.isStatus() ? " removed successfully" : " removal failed"));
+                    break;
+            }
+        } catch (ExecutionException | InterruptedException | IOException e) {
+            outputModel.setStatus(false);
+            outputModel.setResponse(e.getMessage());
+            e.printStackTrace();
+        } catch (TimeoutException e) {
+            System.out.println(">> Response timeout! Use sloppy quorum!");
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Re-forwards a request from API gateway to a valid co-ordinator in the hash nodes.
+     *
+     * @param payload    Payload to forward
+     * @param hashNodes  list of hashNodes
+     * @param apiGateway The DynamoNode instance representing API Gateway
+     */
+    private void forwardToRandomNode(ForwardPayload payload, ArrayList<DynamoNode> hashNodes, DynamoNode apiGateway) {
+        /* This node is not a part of the hashnodes, forward request to one of the hashNodes */
+        if (hashNodes.size() > 0) {
+            DynamoNode newCoord = hashNodes.get(random.nextInt(hashNodes.size()));
+
+            /* Send forward to this node, src being the API gateway */
+            DynamoMessage msg = new DynamoMessage(apiGateway, MessageTypes.FORWARD, payload);
+            try {
+                this.sendMessage(newCoord, msg);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
 
     /**
      * Method to create the bucket in the database having the specified name
      *
      * @param name The name of the bucket
+     * @return true if the bucket was created successfully, false otherwise
      */
-    public void createBucket(String name, OutputModel outputModel) {
+    private boolean createBucket(String name) {
 //        // create folder in current node
-//        boolean success = createFolder(name);
+        AtomicBoolean success = new AtomicBoolean(false);
+        /* TODO: Add quorum implementation */
+        success.set(createFolder(name));
 
-        // send a request to each node in the system to create the folder
-        sendRequests(MessageTypes.BUCKET_CREATE, name);
         /* Spawn ack thread to collect acks, and write to output model */
         try {
-            AckReceiver ackThread = new AckReceiver(outputModel);
-            this.executorService.execute(ackThread);
-            while (ackThread.isAlive()) {
-                TimeUnit.MILLISECONDS.sleep(100);
+            AckReceiver ackThread = new AckReceiver(success);
+            Future future = this.executorService.submit(ackThread);
+
+            // send a request to each node in the system to create the folder
+            sendRequests(MessageTypes.BUCKET_CREATE, name);
+
+            // wait for thread termination
+            future.get(20, TimeUnit.SECONDS);
+            /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
+             *  it is occupying a port and CPU time without any reason.
+             */
+            if (!future.isDone()) {
+                future.cancel(true);
+                success.set(false);
             }
-        } catch (SocketException e) {
-            outputModel.setStatus(false);
-            outputModel.setResponse(e.getMessage());
-        } catch (InterruptedException e) {
+        } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+            success.set(false);
             e.printStackTrace();
         }
+
+        return success.get();
 
     }
 
@@ -371,14 +554,34 @@ public class DynamoServer implements NotificationListener {
      * Method to delete a bucket from the database
      *
      * @param name Name of the folder to be deleted
+     * @return true if folder was deleted successfully, false otherwise
      */
-    public void deleteBucket(String name) {
-        boolean status = deleteFolder(name); // delete folder from current node
+    private boolean deleteBucket(String name) {
 
-        // send a request to each node in the system to delete the folder
-        sendRequests(MessageTypes.BUCKET_DELETE, name);
+        AtomicBoolean success = new AtomicBoolean(false);
+        success.set(deleteFolder(name));
 
-        // TODO: Send the actual response received through acknowledgement message
+        try {
+            AckReceiver ackThread = new AckReceiver(success);
+            Future future = this.executorService.submit(ackThread);
+
+            // send a request to each node in the system to delete the folder
+            sendRequests(MessageTypes.BUCKET_DELETE, name);
+
+            // wait for thread termination
+            future.get(20, TimeUnit.SECONDS);
+            /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
+             *  it is occupying a port and CPU time without any reason.
+             */
+            if (!future.isDone()) {
+                future.cancel(true);
+                success.set(false);
+            }
+        } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+            success.set(false);
+            e.printStackTrace();
+        }
+        return success.get();
 
     }
 
@@ -391,13 +594,14 @@ public class DynamoServer implements NotificationListener {
     private boolean deleteFolder(String name) {
         boolean status = false;
         try {
-            FileUtils.deleteDirectory(new File("/" + name));
-            status = true;
+            File file = new File("/" + name);
+            if (file.exists()) {
+                FileUtils.deleteDirectory(new File("/" + name));
+                status = true;
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
-
-        // TODO: Send the actual response received through acknowledgement message
         return status;
     }
 
@@ -406,31 +610,174 @@ public class DynamoServer implements NotificationListener {
      *
      * @param bucket     The bucket in which the record is to be added
      * @param inputModel A deserialized object of the record sent by user
+     * @param hashNodes  list of hash nodes
+     * @return true if object was created successfully, false otherwise
      */
-    public void addRecord(String bucket, ObjectInputModel inputModel) {
-        if (hashingManager == null) {
-            initializeHashingManager(vNodeCount, new CityHash(), backups);
+    private boolean addRecord(String bucket, ObjectInputModel inputModel, ArrayList<DynamoNode> hashNodes) {
+        AtomicBoolean success = new AtomicBoolean(true);
+        success.set(createFile(bucket, inputModel.getKey(), inputModel.getValue(), true));
+        hashNodes.remove(this.node);
+
+
+        // send requests to all appropriate nodes and await response
+        if (hashNodes.size() > 0) {
+            try {
+                System.out.println("Sending CREATE request to " + hashNodes.size() + " other nodes");
+                for (DynamoNode node : hashNodes) {
+                    System.out.println(node.name + " " + node.getAddress());
+                }
+                AckReceiver ackThread = new AckReceiver(success, hashNodes.size(),
+                        (success.get() ? Quorum.getWriteQuorum() - 1 : Quorum.getWriteQuorum()));
+                Future future = this.executorService.submit(ackThread);
+
+                // send a request to each relevant hash-node to create the object
+                sendRequests(MessageTypes.OBJECT_CREATE, new Pair<>(bucket, inputModel), hashNodes);
+
+                // wait for thread termination
+                future.get(10, TimeUnit.SECONDS);
+                /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
+                 *  it is occupying a port and CPU time without any reason.
+                 */
+                if (!future.isDone()) {
+                    future.cancel(true);
+                    success.set(false);
+                }
+            } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+                success.set(false);
+                e.printStackTrace();
+            }
         }
 
-        sendRequests(MessageTypes.OBJECT_CREATE,
-                new Pair<>(bucket, inputModel),
-                hashingManager.routeNodes(inputModel.getKey()));
-
-        // TODO: Send the actual response received through acknowledgement message
-
+        return success.get();
     }
 
-    public void readRecord(String bucket, ObjectInputModel inputModel) {
-        if (hashingManager == null) {
-            initializeHashingManager(vNodeCount, new CityHash(), backups);
+    /**
+     * Method to delete a record from the database
+     *
+     * @param bucketName The name of the bucket which contains the record
+     * @param key        the key of the object ot be deleted
+     * @return true if deletion was successful, false otherwise
+     */
+    private boolean deleteRecord(String bucketName, String key, ArrayList<DynamoNode> hashNodes) {
+        // track success of operation
+        AtomicBoolean success = new AtomicBoolean(true);
+
+        // key present in coordinator
+        if (hashNodes.contains(this.node)) {
+            System.out.println("Key to be deleted present in coordinator " + this.node.name);
+            success.set(deleteFile(bucketName, key));
+            hashNodes.remove(this.node);
         }
 
-        sendRequests(MessageTypes.OBJECT_READ,
-                new Pair<>(bucket, inputModel),
-                hashingManager.routeNodes(inputModel.getKey()));
+        // key present in other nodes
+        if (hashNodes.size() > 0) {
+            try {
+                System.out.println("Sending DELETE request to " + hashNodes.size() + " other nodes");
+                AckReceiver ackReceiver = new AckReceiver(success, hashNodes.size(), Quorum.getWriteQuorum());
 
-        // TODO: Send the actual data to the application
+                // initialize Acknowledgement Receiver thread to listen for acknowledgements
+                Future future = this.executorService.submit(ackReceiver);
 
+                // send a request to each relevant hash-node to create the object
+                sendRequests(MessageTypes.OBJECT_DELETE, new Pair<>(bucketName, key), hashNodes);
+
+                // wait for acknowledgement thread termination
+                future.get(20, TimeUnit.SECONDS);
+            } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+                success.set(false);
+                e.printStackTrace();
+            }
+        }
+
+        return success.get();
+    }
+
+    private boolean updateRecord(String bucket, ObjectInputModel inputModel, ArrayList<DynamoNode> hashNodes) {
+        AtomicBoolean success = new AtomicBoolean(true);
+
+        // this node is one of the hash replicas, create object here
+        success.set(updateFile(bucket, inputModel.getKey(), inputModel.getValue(), true));
+        hashNodes.remove(this.node);
+
+
+        // send requests to all appropriate nodes and await response
+        if (hashNodes.size() > 0) {
+            try {
+                System.out.println("Sending UPDATE request to " + hashNodes.size() + " other nodes");
+                for (DynamoNode node : hashNodes) {
+                    System.out.println(node.name + " " + node.getAddress());
+                }
+                AckReceiver ackThread = new AckReceiver(success, hashNodes.size(),
+                        (success.get() ? Quorum.getWriteQuorum() - 1 : Quorum.getWriteQuorum()));
+                Future future = this.executorService.submit(ackThread);
+
+                // send a request to each relevant hash-node to create the object
+                sendRequests(MessageTypes.OBJECT_UPDATE, new Pair<>(bucket, inputModel), hashNodes);
+
+                // wait for thread termination
+                future.get(10, TimeUnit.SECONDS);
+                /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
+                 *  it is occupying a port and CPU time without any reason.
+                 */
+                if (!future.isDone()) {
+                    future.cancel(true);
+                    success.set(false);
+                }
+            } catch (SocketException | InterruptedException | ExecutionException | TimeoutException e) {
+                success.set(false);
+                e.printStackTrace();
+            }
+        }
+
+        return success.get();
+    }
+
+    /**
+     * Method to read the contents of a record
+     *
+     * @param bucket the name of the bucket which contains the record
+     * @param key    the key whose value is to be read
+     * @param hashNodes the list of hash nodes
+     */
+    private ArrayList<ObjectIOModel> readRecord(String bucket,
+                                                String key,
+                                                ArrayList<DynamoNode> hashNodes) {
+
+        /* if is a coord then read from this node and decrement read quorum if applicable */
+        int readQuorum = Quorum.getReadQuorum();
+        AtomicBoolean success = new AtomicBoolean(false);
+
+        ArrayList<ObjectIOModel> out = new ArrayList<>();
+
+        if (isCoordinator(hashNodes)) {
+            ObjectIOModel ioModel = readFile(bucket, key);
+            if (ioModel != null && !ioModel.getValue().isEmpty()) {
+                out.add(ioModel);
+                hashNodes.remove(this.node);
+                readQuorum--;
+            }
+        }
+
+        try {
+            ReadReceiver readThread = new ReadReceiver(hashNodes.size(), readQuorum, out, success);
+            // send a request to each relevant hash-node to create the object
+            Future future = this.executorService.submit(readThread);
+            sendRequests(MessageTypes.OBJECT_READ, new Pair<>(bucket, key), hashNodes);
+
+            // wait for thread termination
+            future.get(10, TimeUnit.SECONDS);
+            /* TODO: [TEMP DONE] Since we will not be using the Receiver for randNode, kill the thread,
+             *  it is occupying a port and CPU time without any reason.
+             */
+            if (!future.isDone()) {
+                future.cancel(true);
+                success.set(false);
+            }
+
+        } catch (SocketException | InterruptedException | TimeoutException | ExecutionException e) {
+            e.printStackTrace();
+        }
+        return out;
     }
 
     /**
@@ -439,17 +786,21 @@ public class DynamoServer implements NotificationListener {
      * @param folder   The folder in which the file is to be created
      * @param name     the name of the file to be created
      * @param contents the contents to be written to the file
+     * @param isCoord  true if the caller node is the coordinator, false otherwise
      * @return true if file creation was successful
      */
-    private boolean createFile(String folder, String name, String contents) {
+    private boolean createFile(String folder, String name, String contents, boolean isCoord) {
+        ObjectIOModel ioModel = new ObjectIOModel((isCoord) ? 1 : 0, contents);
+        String json = AppConfig.getParser().serialize(ioModel);
         boolean status = false;
         try {
-            File file = new File("/" + folder + "/" + name);
-            if (!file.exists()) {
-                FileUtils.write(file, contents, Charset.defaultCharset(), false);
-                status = true;
-            } else {
-                return status;
+            File parent = new File("/" + folder);
+            if (parent.exists()) {
+                File file = new File(parent, name);
+                if (!file.exists()) {
+                    FileUtils.write(file, json, Charset.defaultCharset(), false);
+                    status = true;
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -465,17 +816,17 @@ public class DynamoServer implements NotificationListener {
      * @param name   the name of hte file
      * @return A string representing the contents of the file
      */
-    private String readFile(String folder, String name) {
-        String contents = null;
+    private ObjectIOModel readFile(String folder, String name) {
+        ObjectIOModel contents = null;
         File file = new File("/" + folder + "/" + name);
         if (file.exists()) {
             try {
-                contents = FileUtils.readFileToString(file, Charset.defaultCharset());
+                contents = AppConfig.getParser().deserialize(
+                        FileUtils.readFileToString(file, Charset.defaultCharset()), ObjectIOModel.class);
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
-
         return contents;
     }
 
@@ -486,14 +837,22 @@ public class DynamoServer implements NotificationListener {
      * @param folder   The folder in which the file is to be updated
      * @param name     the name of the file to be updated
      * @param contents the contents to be written to the file
+     * @param isCoord  true if the caller node is the coordinator, false otherwise
      * @return true if the file was updated successfully
      */
-    private boolean updateFile(String folder, String name, String contents) {
+    private boolean updateFile(String folder, String name, String contents, boolean isCoord) {
         boolean status = false;
         File file = new File("/" + folder + "/" + name);
         if (file.exists()) {
             try {
-                FileUtils.write(file, contents, Charset.defaultCharset(), false);
+                // read file contents into ObjectIOModel
+                ObjectIOModel ioModel = readFile(folder, name);
+                if (isCoord) {
+                    ioModel.setVersion(ioModel.getVersion() + 1);
+                }
+                ioModel.setValue(contents);
+                FileUtils.write(file, AppConfig.getParser().serialize(ioModel),
+                        Charset.defaultCharset(), false);
                 status = true;
             } catch (IOException e) {
                 e.printStackTrace();
@@ -518,46 +877,46 @@ public class DynamoServer implements NotificationListener {
         return status;
     }
 
-    @SuppressWarnings("unchecked")
-    private class MessageReceiver implements Runnable {
+    private class GossipReceiver implements Runnable {
         private AtomicBoolean keepRunning;
 
-        public MessageReceiver() {
+        GossipReceiver() {
             keepRunning = new AtomicBoolean(true);
         }
 
         public void run() {
+
+            System.out.print("[Dynamo Server] Gossip receive started");
+
             while (keepRunning.get()) {
                 /* Logic for receiving */
-                System.out.println("ghot");
+
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] GOSSIP received ");
                 try {
                     DynamoServer.this.server.receive(p);
                     /* Parse this packet into an object */
-                   
                     //vclock
-                    Vector jv=new Vector(DynamoServer.this.node);
-                    byte[] res=jv.unpackReceive(p.getData());
-                    ByteArrayInputStream bais = new ByteArrayInputStream(res);
+//                    JVec jv=new JVec(DynamoServer.this.node);
+//                    byte[] res=jv.unpackReceive(p.getData());
+//                     ByteArrayInputStream bais = new ByteArrayInputStream(res);
+                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
-                    	
                         DynamoMessage msg = (DynamoMessage) readObject;
-                    		boolean status;
+                        System.out.print("from " + msg.srcNode.name);
+                        boolean status;
                         String bucketName = null;
                         Pair<String, ObjectInputModel> obj = null;
-                        // TODO: Implement sending of acknowledgement message
                         switch (msg.type) {
                             case PING:
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
-                                node.getVc().printVC();
                                 break;
                             case NODE_LIST:
                                 DynamoServer.this.mergeMembershipLists(msg.srcNode, msg.payload);
-                                /* TODO: Implement NODE LIST RECV */
                                 break;
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
@@ -576,43 +935,40 @@ public class DynamoServer implements NotificationListener {
     }
 
     private class MessageSender implements Runnable {
-        DynamoMessage sendMsg;
-        ArrayList<? extends DynamoNode> nodeList;
+        private DynamoMessage sendMsg;
+        private ArrayList<DynamoNode> sendList;
 
         MessageSender(MessageTypes type, Object payload) {
-            sendMsg =
-                    new DynamoMessage(DynamoServer.this.node, type, payload);
-            nodeList = DynamoServer.this.nodeList;
+            this.sendMsg = new DynamoMessage(DynamoServer.this.node, type, payload);
+            this.sendList = new ArrayList<>(DynamoServer.this.nodeList);
         }
 
-        MessageSender(MessageTypes type, Object payload, ArrayList<? extends DynamoNode> nodeList) {
+        MessageSender(MessageTypes type, Object payload, ArrayList<DynamoNode> sendList) {
             this(type, payload);
-            this.nodeList = nodeList;
+            this.sendList = sendList;
         }
 
         public void run() {
-
-            while (true) {
-                try {
-                    TimeUnit.MILLISECONDS.sleep(2000);
-                    for (DynamoNode node : nodeList) {
-                        try {
-                            DynamoServer.this.sendMessage(node, sendMsg);
-                        } catch (IOException e) {
-                            /* TODO: Change address to node name after gossip implementation */
-                            System.out.println("[WARN] Could not send " + sendMsg.type.name() +
-                                    " to " + node.getAddress());
-                            e.printStackTrace();
-                        }
+            do {
+                if (this.sendMsg.type == MessageTypes.PING) {
+                    try {
+                        TimeUnit.MILLISECONDS.sleep(2000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
                     }
-                    if (sendMsg.type != MessageTypes.PING) {
-                        // this message should be sent only once, no need to loop
-                        break;
-                    }
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
                 }
-            }
+                for (DynamoNode node : this.sendList) {
+                    try {
+                        if (!node.isApiNode()) {
+                            DynamoServer.this.sendMessage(node, this.sendMsg);
+                        }
+                    } catch (IOException e) {
+                        System.out.println("[WARN] Could not send " + this.sendMsg.type.name() +
+                                " to " + node.name + " (" + node.getAddress() + ")");
+                        e.printStackTrace();
+                    }
+                }
+            } while (this.sendMsg.type == MessageTypes.PING);
         }
     }
 
@@ -620,7 +976,7 @@ public class DynamoServer implements NotificationListener {
         private AtomicBoolean keepRunning;
 
         Gossiper() {
-            keepRunning = new AtomicBoolean(true);
+            this.keepRunning = new AtomicBoolean(true);
         }
 
         public void run() {
@@ -641,54 +997,89 @@ public class DynamoServer implements NotificationListener {
     }
 
     /**
-     * Method to initialize an inctance of {@link HashingManager} for first time use
+     * Method to initialize an instance of {@link HashingManager} for first time use
      *
-     * @param vNodeCount   the number of replicates of a node to be maintained in the hash ring
      * @param hashFunction an instance of the hash function to be used
-     * @param backups      the number of copies of the objects, including original, to be maintained
      */
-    private void initializeHashingManager(int vNodeCount, HashFunction hashFunction, int backups) {
+    private void initializeHashingManager(HashFunction hashFunction) {
         if (hashingManager == null) {
             // initialize hashingManager only if it is null
-            if (backups != 2) {
-                hashingManager = new HashingManager<>(nodeList, vNodeCount, hashFunction, backups);
-            } else {
-                hashingManager = new HashingManager<>(nodeList, vNodeCount, hashFunction);
+            ArrayList<DynamoNode> hashNodes = new ArrayList<>();
+            for (DynamoNode node : nodeList) {
+                if (!node.isApiNode()) {
+                    hashNodes.add(node);
+                }
             }
+
+            hashNodes.add(this.node);
+
+            hashingManager = new HashingManager<>(hashNodes, hashFunction);
         }
     }
 
+    /**
+     * Method to return list of hash nodes
+     *
+     * @param key key of object
+     * @return list of hash nodes
+     */
+    private ArrayList<DynamoNode> getHashNodes(String key) {
+        if (hashingManager == null) {
+            initializeHashingManager(new CityHash());
+        }
+
+        // get all the nodes to which this record should be written
+        return hashingManager.routeNodes(key);
+    }
+
+    /**
+     * Method to check if current node is a coordinator or not
+     *
+     * @param hashNodes List of hash nodes
+     * @return true if this node is a coordinator, false otherwise
+     */
+    private boolean isCoordinator(@Nullable ArrayList<DynamoNode> hashNodes) {
+        if (hashNodes == null) {
+            return true;
+        }
+        return hashNodes.contains(this.node);
+    }
+
+    /**
+     * Thread to receive IO related messages and take action according to the type of message
+     */
     @SuppressWarnings("unchecked")
     private class ioReceiver implements Runnable {
         private AtomicBoolean keepRunning;
 
-        public ioReceiver() {
+        ioReceiver() {
             keepRunning = new AtomicBoolean(true);
         }
 
         public void run() {
+
+            System.out.println("[Dynamo Server] IO receiver started");
             while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("ioGhot");
+
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+
+                System.out.print("[Dynamo Server] IO request received ");
+
                 try {
                     DynamoServer.this.ioServer.receive(p);
                     /* Parse this packet into an object */
-                  //vclock
-                    Vector jv=new Vector(DynamoServer.this.node);
-                    byte[] res=jv.unpackReceive(p.getData());
-                    ByteArrayInputStream bais = new ByteArrayInputStream(res);
-                    //ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
                         DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println("from " + msg.srcNode.name);
                         boolean status;
+                        ArrayList<ObjectIOModel> list = null;
                         String bucketName = null;
-                        Pair<String, ObjectInputModel> obj = null;
-                        // TODO: Implement sending of acknowledgement message
+                        Pair<String, ?> obj = null;
                         switch (msg.type) {
                             case PING:
                                 System.out.println("[Dynamo Server] PING recieved from " + msg.srcNode.name);
@@ -697,47 +1088,148 @@ public class DynamoServer implements NotificationListener {
                                 bucketName = (String) msg.payload;
                                 status = createFolder(bucketName);
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " created: " + status);
+                                /* TODO: Change txnID when implementing parallel IO */
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.BUCKET_CREATE, bucketName, 0, status)));
                                 break;
                             case BUCKET_DELETE:
                                 bucketName = (String) msg.payload;
                                 status = deleteFolder(bucketName);
                                 System.out.println("[" + node.name + "] Folder " + bucketName + " deleted: " + status);
+                                /* TODO: Change txnID when implementing parallel IO */
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.BUCKET_DELETE, bucketName, 0, status)));
                                 break;
                             case OBJECT_CREATE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                status = createFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
+                                status = createFile(obj.getKey(), ((ObjectInputModel) obj.getValue()).getKey(),
+                                        ((ObjectInputModel) obj.getValue()).getValue(), false);
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " created: " + status);
+                                        + ((ObjectInputModel) obj.getValue()).getKey() + " created: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.OBJECT_CREATE,
+                                                ((ObjectInputModel) obj.getValue()).getKey(),
+                                                2, status)));
                                 break;
                             case OBJECT_READ:
-                                obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                String contents = readFile(obj.getKey(), obj.getValue().getKey());
+                                /* TODO: Read using ObjectIOModel and get content and version both
+                                 * and serialize payload in form Pair<String, Long> */
+                                obj = (Pair<String, String>) msg.payload;
+                                ObjectIOModel contents = readFile(obj.getKey(), String.valueOf(obj.getValue()));
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " read: " + contents);
+                                        + obj.getValue() + " read: " + contents);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
                                         MessageTypes.ACKNOWLEDGEMENT, contents));
                                 break;
                             case OBJECT_UPDATE:
                                 obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                status = updateFile(obj.getKey(), obj.getValue().getKey(), obj.getValue().getValue());
+                                status = updateFile(obj.getKey(),
+                                        ((ObjectInputModel) obj.getValue()).getKey(),
+                                        ((ObjectInputModel) obj.getValue()).getValue(), false);
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " updated: " + status);
+                                        + ((ObjectInputModel) obj.getValue()).getKey() + " updated: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.OBJECT_UPDATE,
+                                                obj.getKey() + "/" + ((ObjectInputModel) obj.getValue()).getKey(),
+                                                2, status)));
                                 break;
                             case OBJECT_DELETE:
-                                obj = (Pair<String, ObjectInputModel>) msg.payload;
-                                status = deleteFile(obj.getKey(), obj.getValue().getKey());
+                                obj = (Pair<String, String>) msg.payload;
+                                status = deleteFile(obj.getKey(), String.valueOf(obj.getValue()));
                                 System.out.println("[" + node.name + "] File /" + obj.getKey() + "/"
-                                        + obj.getValue().getKey() + " deleted: " + status);
+                                        + obj.getValue() + " deleted: " + status);
                                 sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
-                                        MessageTypes.ACKNOWLEDGEMENT, status));
+                                        MessageTypes.ACKNOWLEDGEMENT,
+                                        new AckPayload(MessageTypes.OBJECT_DELETE,
+                                                obj.getKey() + "/" + obj.getValue(),
+                                                2, status)));
+                                break;
+                            case FORWARD:
+                                ForwardPayload payload = (ForwardPayload) msg.payload;
+
+                                // get the list of hash nodes if applicable
+                                ArrayList<DynamoNode> hashNodes = null;
+                                if (payload.getRequestType() == MessageTypes.OBJECT_DELETE ||
+                                        payload.getRequestType() == MessageTypes.OBJECT_READ) {
+                                    hashNodes = getHashNodes(String.valueOf(payload.getInputModel()));
+                                } else if (payload.getRequestType() == MessageTypes.OBJECT_CREATE ||
+                                        payload.getRequestType() == MessageTypes.OBJECT_UPDATE) {
+                                    hashNodes = getHashNodes(((ObjectInputModel) payload.getInputModel()).getKey());
+                                }
+
+                                boolean isCoord = isCoordinator(hashNodes);
+
+                                switch (payload.getRequestType()) {
+                                    case BUCKET_CREATE:
+                                        status = createBucket(payload.getBucketName());
+                                        break;
+                                    case BUCKET_DELETE:
+                                        status = deleteBucket(payload.getBucketName());
+                                        break;
+                                    case OBJECT_CREATE:
+                                        if (isCoord) {
+                                            System.out.println("~DEBUG~ addRecord() being called");
+                                            assert hashNodes != null;
+                                            status = addRecord(payload.getBucketName(),
+                                                    (ObjectInputModel) payload.getInputModel(),
+                                                    hashNodes);
+                                        } else {
+                                            // forward to random node from hashNodes
+                                            forwardToRandomNode(payload, hashNodes, msg.srcNode);
+                                            status = true; /* TODO: temp */
+                                        }
+                                        break;
+                                    case OBJECT_UPDATE:
+                                        if (isCoord) {
+                                            System.out.println("~DEBUG~ updateRecord() being called");
+                                            assert hashNodes != null;
+                                            status = updateRecord(payload.getBucketName(),
+                                                    (ObjectInputModel) payload.getInputModel(),
+                                                    hashNodes);
+                                        } else {
+                                            // forward to random node from hashNodes
+                                            forwardToRandomNode(payload, hashNodes, msg.srcNode);
+                                            status = true; /* TODO: temp */
+                                        }
+                                        break;
+                                    case OBJECT_DELETE:
+                                        System.out.println("~DEBUG~ deleteRecord() being called");
+                                        assert hashNodes != null;
+                                        status = deleteRecord(payload.getBucketName(),
+                                                String.valueOf(payload.getInputModel()), hashNodes);
+                                        break;
+                                    case OBJECT_READ:
+                                        System.out.println("~DEBUG~ readRecord() being called");
+                                        /* Make it return a list, and pass the list to
+                                            FORWARD_ACK_READ
+                                         */
+                                        assert hashNodes != null;
+                                        list = readRecord(payload.getBucketName(),
+                                                String.valueOf(payload.getInputModel()), hashNodes);
+                                        status = true;  /* TODO: temp */
+                                        break;
+                                    default:
+                                        System.out.println(">> Unknown request forwarded!");
+                                        status = false;
+                                }
+
+                                // return to ForwardReceiver
+                                    if (payload.getRequestType() == MessageTypes.OBJECT_READ) {
+                                        /* something more needs to be sent back in case of READ */
+                                        sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                                MessageTypes.FORWARD_ACK_READ, list));
+                                    } else if ((payload.getRequestType() == MessageTypes.OBJECT_CREATE && isCoord) ||
+                                            (payload.getRequestType() == MessageTypes.OBJECT_UPDATE && isCoord) ||
+                                            (payload.getRequestType() == MessageTypes.BUCKET_CREATE) ||
+                                            (payload.getRequestType() == MessageTypes.BUCKET_DELETE) ||
+                                            (payload.getRequestType() == MessageTypes.OBJECT_DELETE)) {
+                                        sendMessage(msg.srcNode, new DynamoMessage(DynamoServer.this.node,
+                                                MessageTypes.FORWARD_ACK, status));
+                                    }
                                 break;
                             default:
                                 System.out.println("Unrecognized packet type: " + msg.type.name());
@@ -755,50 +1247,270 @@ public class DynamoServer implements NotificationListener {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private class AckReceiver extends Thread {
         private AtomicBoolean keepRunning;
         private DatagramSocket ackServer;
-        private OutputModel outputModel;
+        private AtomicBoolean status;
+        private int numReplicas;
+        private int quorum;
 
-        public AckReceiver(OutputModel outputModel) throws SocketException {
-            keepRunning = new AtomicBoolean(true);
-            ackServer = new DatagramSocket(DynamoServer.this.ackPort);
-            this.outputModel = outputModel;
+        AckReceiver(AtomicBoolean status) throws SocketException {
+            this.keepRunning = new AtomicBoolean(true);
+            this.ackServer = new DatagramSocket(DynamoServer.this.ackPort);
+            this.status = status;
+            this.numReplicas = DynamoServer.this.nodeList.size() - 1;
+            this.quorum = numReplicas;
+        }
+
+        AckReceiver(AtomicBoolean status, int size, int quorum) throws SocketException {
+            this(status);
+            this.numReplicas = size;
+            this.quorum = quorum;
         }
 
         @Override
         public void run() {
+            int receives = 0;
+            int success = 0;
+            System.out.println(">> ACK: quorum init: " + numReplicas + " receives init : " + receives);
             while (keepRunning.get()) {
-                /* Logic for receiving */
-                System.out.println("AckGhot");
                 /* init a buffer where the packet will be placed */
                 byte[] buf = new byte[1500];
                 DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] Acknowledgement received ");
                 try {
-                    DynamoServer.this.server.receive(p);
+                    this.ackServer.receive(p);
                     /* Parse this packet into an object */
-                  //vclock
-                    Vector jv=new Vector(DynamoServer.this.node);
-                    byte[] res=jv.unpackReceive(p.getData());
-                    ByteArrayInputStream bais = new ByteArrayInputStream(res);
-                    //ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
                     ObjectInputStream ois = new ObjectInputStream(bais);
                     Object readObject = ois.readObject();
                     if (readObject instanceof DynamoMessage) {
+                        // TODO: Update method to manage successful receives vs. no. of receives
                         DynamoMessage msg = (DynamoMessage) readObject;
-                        /* TODO: Register ACK */
+                        System.out.println("from " + msg.srcNode.name);
+
+                        receives++;
+                        System.out.println(">> ACK: quorum: " + numReplicas + " receives: " + receives);
+                        AckPayload payload = (AckPayload) msg.payload;
+//                        this.status.set(this.status.get() & (payload.isStatus()));
+                        if (payload.isStatus()) {
+                            success++;
+                        }
+                        /* TODO: track separate receives by txnID */
+                        if (receives >= numReplicas || success >= quorum) {
+                            if (success >= quorum) {
+                                status.set(true);
+                            } else {
+                                status.set(false);
+                            }
+                            System.out.println(">> ACK: Quorum achieved! Success!");
+                            switch (payload.getRequestType()) {
+                                case BUCKET_CREATE:
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting BUCKET_CREATE response");
+                                    break;
+                                case BUCKET_DELETE:
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting BUCKET_DELETE response");
+                                    break;
+                                case OBJECT_CREATE:
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_CREATE response");
+                                    break;
+                                case OBJECT_READ:
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_READ response");
+                                    break;
+                                case OBJECT_UPDATE:
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_UPDATE response");
+                                    break;
+                                case OBJECT_DELETE:
+                                    System.out.println(">> ACK: Quorum achieved for " + payload.getIdentifier()
+                                            + ": Setting OBJECT_DELETE response");
+                                    break;
+                                default:
+                                    System.out.println("Unrecognized packet type!");
+                            }
+                            this.keepRunning.set(false);
+                        }
                     } else {
                         System.out.println("Malformed packet!");
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
-                    keepRunning.set(false);
+                    this.keepRunning.set(false);
                 } catch (ClassNotFoundException e) {
                     e.printStackTrace();
                 }
             }
+            if (!this.ackServer.isClosed()) {
+                this.ackServer.close();
+            }
+        }
 
+        @Override
+        public void interrupt() {
+            super.interrupt();
+            if (!this.ackServer.isClosed()) {
+                this.ackServer.close();
+            }
+            this.keepRunning.set(false);
+        }
+    }
+
+    private class ReadReceiver extends Thread {
+        private AtomicBoolean keepRunning;
+        private DatagramSocket readServer;
+        private AtomicBoolean status;
+        private int quorum;
+        private int numReplicas;
+        private ArrayList<ObjectIOModel> out;
+
+        ReadReceiver(int size, int quorum, ArrayList<ObjectIOModel> out, AtomicBoolean status) throws SocketException {
+            keepRunning = new AtomicBoolean(true);
+            readServer = new DatagramSocket(DynamoServer.this.ackPort);
+            this.quorum = quorum;
+            this.numReplicas = size;
+            this.out = out;
+            this.status = status;
+        }
+
+        @Override
+        public void run() {
+            int receives = 0;
+            int success = 0;
+            System.out.println(">> READ RECEIVE: quorum init: " + quorum + " receives init : " + receives);
+            while (keepRunning.get()) {
+                /* Logic for receiving */
+                /* init a buffer where the packet will be placed */
+                byte[] buf = new byte[1500];
+                DatagramPacket p = new DatagramPacket(buf, buf.length);
+                System.out.print("[Dynamo Server] Read receive request received ");
+                try {
+                    this.readServer.receive(p);
+                    /* Parse this packet into an object */
+                    ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                    ObjectInputStream ois = new ObjectInputStream(bais);
+                    Object readObject = ois.readObject();
+                    if (readObject instanceof DynamoMessage) {
+                        DynamoMessage msg = (DynamoMessage) readObject;
+                        System.out.println("from " + msg.srcNode.name);
+
+                        receives++;
+                        System.out.println(">> READ RECEIVE: quorum: " + quorum + " receives: " + receives);
+
+                        ObjectIOModel payload = (ObjectIOModel) msg.payload;
+                        if (payload != null && !payload.getValue().isEmpty()) {
+                            success++;
+                            this.out.add(payload);
+                        }
+
+                        if (success >= quorum) {
+                            this.status.set(true);
+                        }
+                        /* TODO: track separate receives by txnID */
+                        if (receives >= numReplicas) {
+                            System.out.println(">> READ RECEIVE: Replicas response achieved! Success!");
+                            this.keepRunning.set(false);
+                        }
+                    } else {
+                        System.out.println("Malformed packet!");
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    this.keepRunning.set(false);
+                } catch (ClassNotFoundException e) {
+                    e.printStackTrace();
+                }
+            }
+            if (!this.readServer.isClosed()) {
+                this.readServer.close();
+            }
+        }
+
+        @Override
+        public void interrupt() {
+            super.interrupt();
+            if (!this.readServer.isClosed()) {
+                this.readServer.close();
+            }
+            this.keepRunning.set(false);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private class ReceiveFromRandNode extends Thread {
+        //        private AtomicBoolean keepRunning;
+        private DatagramSocket randRecvServer;
+        private OutputModel outputModel;
+
+        ReceiveFromRandNode(OutputModel outputModel) throws SocketException {
+//            keepRunning = new AtomicBoolean(true);
+            randRecvServer = new DatagramSocket(DynamoServer.this.ackPort);
+            this.outputModel = outputModel;
+        }
+
+        @Override
+        public void run() {
+//            while (keepRunning.get()) {
+            /* Logic for receiving */
+            System.out.println(">> REST: randRecv: init");
+            /* init a buffer where the packet will be placed */
+            byte[] buf = new byte[1500];
+            DatagramPacket p = new DatagramPacket(buf, buf.length);
+            try {
+                this.randRecvServer.receive(p);
+                /* Parse this packet into an object */
+                ByteArrayInputStream bais = new ByteArrayInputStream(p.getData());
+                ObjectInputStream ois = new ObjectInputStream(bais);
+                Object readObject = ois.readObject();
+                if (readObject instanceof DynamoMessage) {
+                    // Receive from rand node and set output
+                    DynamoMessage msg = (DynamoMessage) readObject;
+                    switch (msg.type) {
+                        case FORWARD_ACK:
+                            boolean status = (boolean) ((DynamoMessage) readObject).payload;
+                            outputModel.setStatus(status);
+                            break;
+                        case FORWARD_ACK_READ:
+                            ArrayList<ObjectIOModel> list =
+                                    (ArrayList<ObjectIOModel>) msg.payload;
+                            StringBuilder str = new StringBuilder();
+                            /* iterate list and append to output string */
+                            for (ObjectIOModel oim : list) {
+                                str.append("<value: ").append(oim.getValue())
+                                        .append(" version: ").append(oim.getVersion()).append("> ");
+                            }
+                            outputModel.setResponse(str.toString());
+                            outputModel.setStatus(true);
+                            break;
+                        default:
+                            System.out.println("Unrecognized Ack");
+                    }
+                } else {
+                    System.out.println("Malformed packet!");
+                }
+            } catch (IOException e) {
+                outputModel.setResponse(e.getMessage());
+                outputModel.setStatus(false);
+                //e.printStackTrace();
+//                    keepRunning.set(false);
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            }
+//            }
+            if (!randRecvServer.isClosed()) {
+                randRecvServer.close();
+            }
+        }
+
+        @Override
+        public void interrupt() {
+            super.interrupt();
+            if (!this.randRecvServer.isClosed()) {
+                this.randRecvServer.close();
+            }
         }
     }
 }

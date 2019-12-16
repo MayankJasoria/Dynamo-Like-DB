@@ -1,7 +1,6 @@
 package com.cloudproject.dynamo.msgmanager;
 
 import com.cloudproject.dynamo.models.Node;
-import com.cloudproject.dynamo.vector_clock.vclock.VClock;
 
 import java.io.Serializable;
 
@@ -10,26 +9,14 @@ public class DynamoNode implements Serializable, Cloneable, Node {
     private String address;
     private int heartbeat;
     private transient TimeoutTimer timeoutTimer;
+    private boolean apiNode;
 
-    //vclock
-    private VClock vc;
-    public VClock getVc() {
-		return vc;
-	}
-
-	public void setVc(VClock vc) {
-		this.vc = vc;
-	}
-
-	public DynamoNode(String name, String address, DynamoServer server, int heartbeat, int ttl) {
+    public DynamoNode(String name, String address, DynamoServer server, int heartbeat, int ttl, boolean apiNode) {
         this.name = name;
-        
         this.address = address;
         this.heartbeat = heartbeat;
         this.timeoutTimer = new TimeoutTimer(ttl, server, this);
-        this.vc = new VClock();
-        
-        this.vc.tick(name);
+        this.apiNode = apiNode;
     }
 
     public String getAddress() {
@@ -57,7 +44,11 @@ public class DynamoNode implements Serializable, Cloneable, Node {
         return "DynamoNode <address=" + address + ", heartbeat=" + heartbeat + ">";
     }
 
-//    @Override
+    public boolean isApiNode() {
+        return apiNode;
+    }
+
+    //    @Override
 //    protected Object clone() {
 //        return new DynamoNode(name, address, heartbeat, );
 //    }
