@@ -55,13 +55,13 @@ public class DynamoServer implements NotificationListener {
 
     /**
      *
-     * @param name  Name with which the node will be advertised on the network
-     * @param address
-     * @param gossipInt
-     * @param ttl
-     * @param addr_list
-     * @param apiNode
-     * @throws SocketException
+     * @param name Name with which the node will be advertised on the network.
+     * @param address IP address of the node to be advertised on the network.
+     * @param gossipInt Time interval (in seconds) between sending of two gossip messages to all nodes in the list.
+     * @param ttl Time To Live: Time (in seconds) after which each entry in the node list is moved to the dead node list.
+     * @param addr_list Comma separated list of ip address of other nodes in the network. Node list is initialized with these nodes.
+     * @param apiNode True if the node is to be run as an API node. False to run as a standard Dynamo node.
+     * @throws SocketException If there is an error while creating socket.
      */
 
     private DynamoServer(String name, String address, int gossipInt, int ttl,
