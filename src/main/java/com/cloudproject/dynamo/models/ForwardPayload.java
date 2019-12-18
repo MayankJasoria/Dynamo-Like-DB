@@ -15,18 +15,35 @@ public class ForwardPayload implements Serializable {
         this.txnID = txnID;
     }
 
+    /**
+     * Method to get the request type
+     *
+     * @return type of the request
+     */
     public MessageTypes getRequestType() {
         return requestType;
     }
 
+    /**
+     * Method to get the bucket name
+     * @return the name of the bucket
+     */
     public String getBucketName() {
         return bucketName;
     }
 
+    /**
+     * Method to get the Input Model associated with the request
+     * @return an input model associated object with the request
+     */
     public Object getInputModel() {
         return inputModel;
     }
 
+    /**
+     * Method to get the transaction ID (currently not in use)
+     * @return transaction ID of the request
+     */
     public long getTxnID() {
         return txnID;
     }

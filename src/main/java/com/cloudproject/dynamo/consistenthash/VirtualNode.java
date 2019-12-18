@@ -2,6 +2,12 @@ package com.cloudproject.dynamo.consistenthash;
 
 import com.cloudproject.dynamo.models.Node;
 
+/**
+ * Concrete implementation of Node which is used primarily for representing a
+ * virtual copy of a physical node to add multiplicity in the hash ring
+ *
+ * @param <T> An object that extends the {@link Node} interface
+ */
 public class VirtualNode<T extends Node> implements Node {
 
     private final T physicalNode;
@@ -12,6 +18,9 @@ public class VirtualNode<T extends Node> implements Node {
         this.replicaIndex = replicaIndex;
     }
 
+    /**
+     * @inheritDoc
+     */
     @Override
     public String getAddress() {
         return physicalNode.getAddress() + "-" + replicaIndex;

@@ -1030,7 +1030,6 @@ public class DynamoServer implements NotificationListener {
     /**
      * Runnable class that sends Gossip message at a time interval of gossipInt.
      */
-
     private class Gossiper implements Runnable {
         private AtomicBoolean keepRunning;
 
@@ -1311,7 +1310,6 @@ public class DynamoServer implements NotificationListener {
      * we have sent a request to a number of nodes, and are waiting for ACK from them to ensure
      * quorum is satisfied.
      */
-
     private class AckReceiver extends Thread {
         private AtomicBoolean keepRunning;
         private DatagramSocket ackServer;
@@ -1427,7 +1425,6 @@ public class DynamoServer implements NotificationListener {
     /**
      * Runnable class that receives ACKs for READS from nodes and the read value. Ensures read quorum.
      */
-
     private class ReadReceiver extends Thread {
         private AtomicBoolean keepRunning;
         private DatagramSocket readServer;

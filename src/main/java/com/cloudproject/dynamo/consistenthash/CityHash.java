@@ -18,6 +18,7 @@ package com.cloudproject.dynamo.consistenthash;
 
 /**
  * @author tamtam180 - kirscheless at gmail.com
+ * <a href=https://github.com/tamtam180/CityHash-For-Java/blob/master/src/main/java/at/orz/hash/CityHash.java>
  * <p>
  * Disclosure: Only the portion of the original author's code which was relevant to the project
  * has been used, as-is, and other parts of the code have been removed.
