@@ -41,4 +41,3 @@ Example: `java <name-of-jar>.jar node1 172.17.73.158:9350 2000 20000 false 172.1
  - /{bucketName}/{objectName}:
     * GET - returns JSON containing values and vector clocks of all relevant nodes (based on hashing) from which read of object {objectName} in bucket {bucketName} was successful
     * DELETE - deletes the object {objectName} from bucket {bucketName} from all relavant nodes, based on hashing
-``
