@@ -7,7 +7,7 @@ DLD's features include:
 * Vector clock based versioning system for objects.
 * Consistent Hashing 
 
-DLD was tested on a system of 4 VMs. The implementation, however is not bug-free.
+DLD was tested on a system of 4 VMs.
 
 ### Compilation
 To compile the project, pull the project using and compile the maven project. Compiling the maven project will produce a jar file which can be exceuted as a Dynamo Node.
